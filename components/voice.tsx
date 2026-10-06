@@ -3,6 +3,7 @@
 // Текст дописывается в поле с указанным id; работает и для управляемых, и для обычных полей.
 import { useEffect, useRef, useState } from 'react';
 import { Mic, MicOff } from 'lucide-react';
+import { t } from '../lib/i18n';
 
 function appendToField(id: string, text: string) {
   const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null;
@@ -57,7 +58,7 @@ export function VoiceButton({ target, lang = 'ru-RU' }: { target: string; lang?:
       title={listening ? 'Говорите… нажмите, чтобы остановить' : 'Надиктовать голосом'}
     >
       {listening ? <MicOff size={20} /> : <Mic size={20} />}
-      <span>{listening ? 'Слушаю…' : 'Голосом'}</span>
+      <span>{t(listening ? 'Слушаю…' : 'Голосом')}</span>
     </button>
   );
 }

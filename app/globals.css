@@ -2713,3 +2713,65 @@ button.ai-candidate[aria-pressed='true'] {
     display: none !important;
   }
 }
+
+/* ===== QR-коды ===== */
+.scan-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 40px;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+.qr-labels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+.qr-label {
+  margin: 0;
+  padding: 0.8rem;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  background: #fff;
+  color: #000;
+  text-align: center;
+  break-inside: avoid;
+}
+.qr-label figcaption {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+}
+.qr-label figcaption span {
+  color: #444;
+  font-size: 0.75rem;
+}
+.qr-scanner video {
+  width: 100%;
+  border-radius: 10px;
+  background: #000;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+}
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .qr-labels {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.lang-picker {
+  display: flex;
+  gap: 0.4rem;
+}
+.lang-picker button {
+  flex: 1;
+  min-height: 48px;
+}

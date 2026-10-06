@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { createXlsxBook } from '../lib/xlsx';
 import { shiftOf } from '../lib/shift';
+import { t } from '../lib/i18n';
 
 const DAY = 86400000;
 export const periods: [string, string][] = [
@@ -907,7 +908,7 @@ export function MyRating({ api }: { api: string }) {
   return (
     <section className="panel viz-root">
       <div className="section-title">
-        <h2>Мой рейтинг · 30 дней</h2>
+        <h2>{t('Мой рейтинг · 30 дней')}</h2>
         <b className="rating-score">{r.count ? r.score : '—'}</b>
       </div>
       {r.count > 0 && (

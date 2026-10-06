@@ -1,6 +1,7 @@
 'use client';
 // Звуковые сигналы и полноэкранное предупреждение об аварийном наряде.
 import { TriangleAlert, Check, X } from 'lucide-react';
+import { t } from '../lib/i18n';
 
 let audio: AudioContext | null = null;
 
@@ -67,12 +68,12 @@ export function UrgentBanner({
         <div className="urgent-actions">
           {canAccept && (
             <button className="primary" disabled={busy} onClick={onAccept}>
-              <Check /> Принять наряд
+              <Check /> {t('Принять наряд')}
             </button>
           )}
-          <button onClick={onOpen}>Открыть наряд</button>
+          <button onClick={onOpen}>{t('Открыть наряд')}</button>
           <button className="text-button" onClick={onClose} aria-label="Закрыть предупреждение">
-            <X size={18} /> Позже
+            <X size={18} /> {t('Позже')}
           </button>
         </div>
       </section>

@@ -2,6 +2,7 @@
 // Отчёт по наряду (ТЗ 6.4): исполнитель видит оценку и подсказки, мастер — полный разбор проверки.
 import type { ReactNode } from 'react';
 import { ShieldCheck, TriangleAlert, Sparkles, ThumbsUp, Lightbulb, Loader } from 'lucide-react';
+import { t } from '../lib/i18n';
 
 const verdicts: Record<string, string> = {
   accepted: 'Принято',
@@ -28,7 +29,7 @@ export function OrderReport({
   return (
     <section className="panel order-report">
       <div className="section-title">
-        <h2>Отчёт о выполнении</h2>
+        <h2>{t('Отчёт о выполнении')}</h2>
         <span className="mono">
           {report.code ? `${report.code} · ${codeName(report.code)}` : 'Без шифра'}
         </span>
@@ -50,11 +51,11 @@ export function OrderReport({
       )}
       <div className="before-after">
         <div>
-          <h3>Фото «до»</h3>
+          <h3>{t('Фото «до»')}</h3>
           {order.photos?.length ? photos(order.photos) : <p className="muted small">Не прикладывалось</p>}
         </div>
         <div>
-          <h3>Фото «после»</h3>
+          <h3>{t('Фото «после»')}</h3>
           {report.photos?.length ? photos(report.photos) : <p className="muted small">Нет фото</p>}
         </div>
       </div>
@@ -63,7 +64,7 @@ export function OrderReport({
           <div className="section-title">
             <h3>
               <ShieldCheck size={20} />
-              {forWorker ? 'Ваша оценка' : 'Результат проверки'}
+              {forWorker ? t('Ваша оценка') : 'Результат проверки'}
             </h3>
             <strong className="score">
               {score}
@@ -135,7 +136,7 @@ export function OrderReport({
           {!!check.strengths?.length && (
             <div className="feedback good">
               <h4>
-                <ThumbsUp size={16} /> Сделано хорошо
+                <ThumbsUp size={16} /> {t('Сделано хорошо')}
               </h4>
               <ul>
                 {check.strengths.map((s: string) => (
@@ -148,7 +149,7 @@ export function OrderReport({
             <div className="feedback improve">
               <h4>
                 {forWorker ? <Lightbulb size={16} /> : <TriangleAlert size={16} />}{' '}
-                {forWorker ? 'Что улучшить' : 'Замечания'}
+                {forWorker ? t('Что улучшить') : 'Замечания'}
               </h4>
               <ul>
                 {(forWorker ? check.improvements : check.issues).map((s: string) => (
@@ -160,7 +161,7 @@ export function OrderReport({
           {forWorker && !!check.issues?.length && check.verdict === 'rework' && (
             <div className="feedback improve">
               <h4>
-                <TriangleAlert size={16} /> Почему возвращено
+                <TriangleAlert size={16} /> {t('Почему возвращено')}
               </h4>
               <ul>
                 {check.issues.map((s: string) => (

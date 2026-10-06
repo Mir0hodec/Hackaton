@@ -31,6 +31,7 @@ import {
   Smartphone,
   SlidersHorizontal,
   ArrowUpRight,
+  ScanLine,
 } from 'lucide-react';
 import { roles, statuses, priorities, closed, overdue } from '../lib/domain';
 import { WorkProfile, WorkSummary, currentWork, workRating } from '../components/work-tracking';
@@ -45,6 +46,8 @@ import { AssigneeHint, CodeHint, useRecommendation } from '../components/assist'
 import { UrgentBanner, playAlarm, playChime, unlockAudio } from '../components/urgent';
 import { VoiceButton } from '../components/voice';
 import { AssistantChat } from '../components/assistant-chat';
+import { QrLabels, QrScanner, equipmentFromQr } from '../components/qr';
+import { t, setLang, type Lang } from '../lib/i18n';
 const roleIcons: any = {
   master: ClipboardCheck,
   worker: Wrench,
@@ -117,7 +120,32 @@ export default function App() {
     [install, setInstall] = useState<any>(null),
     [urgent, setUrgent] = useState<any>(null);
   const seenAlerts = useRef<{ scope: string; ids: Set<string> }>({ scope: '', ids: new Set() });
-  const voiceLang = 'ru-RU';
+  const [lang, setLangState] = useState<Lang>('ru');
+  setLang(lang);
+  const voiceLang = lang === 'kk' ? 'kk-KZ' : 'ru-RU';
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('naryad-lang');
+      if (saved === 'kk' || saved === 'ru') setLangState(saved);
+    } catch {}
+  }, []);
+  const chooseLang = (l: Lang) => {
+    setLangState(l);
+    try {
+      localStorage.setItem('naryad-lang', l);
+    } catch {}
+  };
+  const langPicker = (
+    <div className="lang-picker" role="group" aria-label="Язык интерфейса">
+      <button aria-pressed={lang === 'ru'} onClick={() => chooseLang('ru')}>
+        Русский
+      </button>
+      <button aria-pressed={lang === 'kk'} onClick={() => chooseLang('kk')}>
+        Қазақша
+      </button>
+    </div>
+  );
+  const [scanning, setScanning] = useState(false);
   const load = useCallback(async () => {
     try {
       const api = endpoint();
@@ -288,7 +316,7 @@ export default function App() {
       if (pending)
         setUrgent({
           order: pending.id,
-          title: `АВАРИЙНЫЙ наряд №${pending.number}`,
+          title: `${t('АВАРИЙНЫЙ наряд')} №${pending.number}`,
           text: `${pending.title}. ${eqName(pending.equipment)}`,
         });
       return;
@@ -344,6 +372,30 @@ export default function App() {
       navigator.serviceWorker?.removeEventListener('message', onMessage);
     };
   }, []);
+  useEffect(() => {
+    if (!user || !data?.equipment) return;
+    const params = new URLSearchParams(window.location.search);
+    const eq = params.get('eq');
+    if (!eq) return;
+    params.delete('eq');
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (params.toString() ? '?' + params.toString() : ''),
+    );
+    const found = equipmentFromQr(eq, data.equipment);
+    if (!found) return;
+    if (user.role === 'master') {
+      setFormEq(found.id);
+      setFormArea(found.area);
+      setPhotos([]);
+      setModal('quick');
+    } else {
+      setEquipmentFilter(found.id);
+      setFilter('all');
+      setTab('orders');
+    }
+  }, [user?.id, !!data?.equipment]);
   useEffect(() => {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
@@ -616,6 +668,7 @@ export default function App() {
       </button>
       {a11y && (
         <div className="visibility-panel">
+          {langPicker}
           {iconPicker}
           <div className="button-row">
             <button onClick={() => setScale(Math.max(1, scale - 0.15))} aria-label="Уменьшить текст">
@@ -645,8 +698,8 @@ export default function App() {
     return (
       <span className={'badge ' + (overdue(o) ? 'danger' : o.status === 'closed' ? 'success' : '')}>
         {overdue(o) && <Clock size={13} />}{' '}
-        {o.pendingSync ? 'Ожидает отправки · ' : overdue(o) ? 'Просрочен · ' : ''}
-        {statuses[o.status]}
+        {o.pendingSync ? 'Ожидает отправки · ' : overdue(o) ? t('Просрочен · ') : ''}
+        {t(statuses[o.status])}
       </span>
     );
   }
@@ -659,7 +712,7 @@ export default function App() {
         <div className="card-top">
           <span className="mono">№{o.number}</span>
           <span className={'priority ' + o.priority}>
-            {o.priority === 'emergency' && <TriangleAlert size={14} />} {priorities[o.priority]}
+            {o.priority === 'emergency' && <TriangleAlert size={14} />} {t(priorities[o.priority])}
           </span>
         </div>
         <h3>{o.title}</h3>
@@ -668,7 +721,9 @@ export default function App() {
         </div>
         <div className="card-bottom">
           <Status o={o} />
-          <span className="small">До {time(o.due)}</span>
+          <span className="small">
+            {t('До')} {time(o.due)}
+          </span>
         </div>
         <div className="assignee small">{userName(o.worker)}</div>
         {worklogs.flatMap((l: any) =>
@@ -1050,7 +1105,7 @@ export default function App() {
               }}
             >
               <Icon size={21} />
-              {title}
+              {t(title)}
             </button>
           ))}
         </nav>
@@ -1179,7 +1234,8 @@ export default function App() {
           {order ? (
             <>
               <button className="back" onClick={() => setSelected(null)}>
-                <ChevronLeft size={18} />К списку нарядов
+                <ChevronLeft size={18} />
+                {t('К списку нарядов')}
               </button>
               <div className="page-heading">
                 <div>
@@ -1191,21 +1247,21 @@ export default function App() {
               <div className="detail-grid">
                 <section className="panel">
                   <div className="section-title">
-                    <h2>Задание</h2>
-                    <span className={'priority ' + order.priority}>{priorities[order.priority]}</span>
+                    <h2>{t('Задание')}</h2>
+                    <span className={'priority ' + order.priority}>{t(priorities[order.priority])}</span>
                   </div>
                   <p className="description">{order.description}</p>
                   <dl className="facts">
                     <div>
-                      <dt>Оборудование</dt>
+                      <dt>{t('Оборудование')}</dt>
                       <dd>{eqName(order.equipment)}</dd>
                     </div>
                     <div>
-                      <dt>Участок</dt>
+                      <dt>{t('Участок')}</dt>
                       <dd>{areaName(order.area)}</dd>
                     </div>
                     <div>
-                      <dt>Исполнитель</dt>
+                      <dt>{t('Исполнитель')}</dt>
                       <dd>
                         {order.brigade
                           ? `Бригада ${order.brigade} · ${userName(order.worker)}`
@@ -1213,18 +1269,18 @@ export default function App() {
                       </dd>
                     </div>
                     <div>
-                      <dt>Срок</dt>
+                      <dt>{t('Срок')}</dt>
                       <dd className={overdue(order) ? 'red' : ''}>{fmt(order.due)}</dd>
                     </div>
                     <div>
-                      <dt>Норматив / активное время</dt>
+                      <dt>{t('Норматив / активное время')}</dt>
                       <dd>
                         {order.norm} / {activeMinutes(order)} мин
                       </dd>
                     </div>
                     <div>
-                      <dt>Тип работ</dt>
-                      <dd>{order.type === 'planned' ? 'Плановые' : 'Внеплановые'}</dd>
+                      <dt>{t('Тип работ')}</dt>
+                      <dd>{t(order.type === 'planned' ? 'Плановые' : 'Внеплановые')}</dd>
                     </div>
                   </dl>
                   {order.downtimeStarted && (
@@ -1261,7 +1317,7 @@ export default function App() {
                           onClick={() => action({ action: 'transition', id: order.id, status: 'accepted' })}
                         >
                           <Check />
-                          Принять наряд
+                          {t('Принять наряд')}
                         </button>
                       )}
                       {['accepted', 'queued', 'paused', 'rework'].includes(order.status) && (
@@ -1271,7 +1327,7 @@ export default function App() {
                           onClick={() => action({ action: 'transition', id: order.id, status: 'working' })}
                         >
                           <Play />
-                          Начать исполнение
+                          {t('Начать исполнение')}
                         </button>
                       )}
                       {['issued', 'accepted'].includes(order.status) && (
@@ -1280,22 +1336,22 @@ export default function App() {
                           disabled={busy}
                         >
                           <Clock />
-                          Поставить в очередь
+                          {t('Поставить в очередь')}
                         </button>
                       )}
                       {['issued', 'accepted', 'queued'].includes(order.status) && (
-                        <button onClick={() => setModal('reject')}>Отклонить с причиной</button>
+                        <button onClick={() => setModal('reject')}>{t('Отклонить с причиной')}</button>
                       )}
                       {order.status === 'working' && (
                         <button onClick={() => setModal('pause')}>
                           <Pause />
-                          Приостановить
+                          {t('Приостановить')}
                         </button>
                       )}
                       {['working', 'paused', 'rework'].includes(order.status) && (
                         <button className="primary" onClick={startReport}>
                           <CheckCheck />
-                          Исполнено — заполнить отчёт
+                          {t('Исполнено — заполнить отчёт')}
                         </button>
                       )}
                     </div>
@@ -1391,7 +1447,7 @@ export default function App() {
                   )}
                 </section>
                 <section className="panel">
-                  <h2>Хронология</h2>
+                  <h2>{t('Хронология')}</h2>
                   <div className="timeline">
                     {order.history.map((h: any, i: number) => (
                       <div key={i}>
@@ -1426,10 +1482,10 @@ export default function App() {
                     })}{' '}
                     · ДАННЫЕ ОБНОВЛЯЮТСЯ
                   </div>
-                  <h1>{user.role === 'worker' ? 'Мои задания' : 'Обзор смены'}</h1>
+                  <h1>{t(user.role === 'worker' ? 'Мои задания' : 'Обзор смены')}</h1>
                   <p className="muted">
                     {user.role === 'worker'
-                      ? 'Очередь работ и контроль сроков'
+                      ? t('Очередь работ и контроль сроков')
                       : 'Люди, оборудование и ремонтные работы'}
                   </p>
                 </div>
@@ -1565,7 +1621,7 @@ export default function App() {
                     </small>
                   </button>
                   <button onClick={() => setTab('people')}>
-                    <span>{user.role === 'worker' ? 'Выполнено сегодня' : 'Свободных сотрудников'}</span>
+                    <span>{user.role === 'worker' ? t('Выполнено сегодня') : 'Свободных сотрудников'}</span>
                     <strong>
                       {user.role === 'worker'
                         ? orders.filter(
@@ -1630,7 +1686,7 @@ export default function App() {
                 </section>
                 <section className="panel staff-panel">
                   <div className="section-title">
-                    <h2>{user.role === 'worker' ? 'Контроль сроков' : 'На смене'}</h2>
+                    <h2>{user.role === 'worker' ? t('Контроль сроков') : 'На смене'}</h2>
                     <span className="live-dot" />
                   </div>
                   {user.role !== 'worker' && statusLegend}
@@ -1646,7 +1702,7 @@ export default function App() {
                         </button>
                       ))
                     ) : (
-                      <p className="muted">Ближайших предупреждений нет.</p>
+                      <p className="muted">{t('Ближайших предупреждений нет.')}</p>
                     )
                   ) : (
                     workers
@@ -1953,6 +2009,23 @@ export default function App() {
             </>
           ) : tab === 'reports' ? (
             <ReportsPage api={analyticsApi} data={data} workers={workers} />
+          ) : tab === 'qr' ? (
+            <>
+              <button className="back no-print" onClick={() => setTab('catalog')}>
+                <ChevronLeft size={18} />К справочникам
+              </button>
+              <div className="page-heading no-print">
+                <div>
+                  <div className="eyebrow">БЫСТРЫЙ ВЫБОР ОБОРУДОВАНИЯ</div>
+                  <h1>QR-этикетки</h1>
+                </div>
+              </div>
+              <QrLabels
+                equipment={data.equipment}
+                areas={data.areas}
+                origin={typeof window === 'undefined' ? '' : window.location.origin}
+              />
+            </>
           ) : tab === 'catalog' ? (
             <>
               <div className="page-heading">
@@ -1960,6 +2033,12 @@ export default function App() {
                   <div className="eyebrow">АДМИНИСТРИРОВАНИЕ</div>
                   <h1>Справочники</h1>
                 </div>
+              </div>
+              <div className="button-row">
+                <button onClick={() => setTab('qr')}>
+                  <ScanLine size={18} />
+                  QR-этикетки оборудования
+                </button>
               </div>
               {user.role === 'admin' && (
                 <SettingsPanel settings={data.settings} busy={busy} onAction={action} />
@@ -2055,7 +2134,7 @@ export default function App() {
               }}
             >
               <Icon size={22} />
-              <span>{title}</span>
+              <span>{t(title)}</span>
             </button>
           ))}
         </nav>
@@ -2065,6 +2144,19 @@ export default function App() {
           <Check size={18} />
           {toast}
         </div>
+      )}
+      {scanning && (
+        <QrScanner
+          onClose={() => setScanning(false)}
+          onResult={(text) => {
+            setScanning(false);
+            const found = equipmentFromQr(text, data.equipment);
+            if (!found) return setError('QR-код не относится к оборудованию из справочника');
+            setFormArea(found.area);
+            setFormEq(found.id);
+            setToast('Оборудование: ' + found.name);
+          }}
+        />
       )}
       {['master', 'manager', 'admin'].includes(user.role) && (
         <AssistantChat api={demo ? '/api/demo-assistant' : '/api/assistant'} />
@@ -2482,7 +2574,12 @@ export default function App() {
               />
             </label>
             <label>
-              Оборудование
+              <span className="label-row">
+                Оборудование
+                <button type="button" className="scan-button" onClick={() => setScanning(true)}>
+                  <ScanLine size={18} /> QR
+                </button>
+              </span>
               <select value={formEq} onChange={(e) => setFormEq(e.target.value)}>
                 {data.equipment.map((eq: any) => (
                   <option key={eq.id} value={eq.id}>
@@ -2607,6 +2704,7 @@ export default function App() {
           }}
           title="Настройки видимости"
         >
+          {langPicker}
           {iconPicker}
           <p>Размер текста</p>
           <div className="button-row">
@@ -2746,7 +2844,12 @@ export default function App() {
                 </select>
               </label>
               <label>
-                Оборудование
+                <span className="label-row">
+                  Оборудование
+                  <button type="button" className="scan-button" onClick={() => setScanning(true)}>
+                    <ScanLine size={18} /> QR
+                  </button>
+                </span>
                 <select required value={formEq} onChange={(e) => setFormEq(e.target.value)}>
                   <option value="">Выберите</option>
                   {data.equipment
@@ -2886,7 +2989,7 @@ export default function App() {
             setModal('');
             setError('');
           }}
-          title="Отчёт о выполнении"
+          title={t('Отчёт о выполнении')}
         >
           <form
             ref={reportForm}
@@ -2904,7 +3007,7 @@ export default function App() {
           >
             <label>
               <span className="label-row">
-                Что выполнено <VoiceButton target="report-works" lang={voiceLang} />
+                {t('Что выполнено')} <VoiceButton target="report-works" lang={voiceLang} />
               </span>
               <textarea
                 id="report-works"
@@ -2915,7 +3018,7 @@ export default function App() {
               />
             </label>
             <label>
-              Шифр неисправности
+              {t('Шифр неисправности')}
               <select name="code" defaultValue={reportDraft.code || ''}>
                 <option value="">Выберите шифр</option>
                 {data.codes.map((c: any) => (
@@ -2926,7 +3029,7 @@ export default function App() {
               </select>
             </label>
             <label>
-              Использованные материалы
+              {t('Использованные материалы')}
               <select
                 value=""
                 onChange={(e) => {
@@ -2970,7 +3073,7 @@ export default function App() {
               </div>
             ))}
             <label>
-              Комментарий
+              {t('Комментарий')}
               <textarea
                 id="report-comment"
                 name="comment"
@@ -2979,12 +3082,14 @@ export default function App() {
               />
             </label>
             <p className="small muted">
-              Фото «после» обязательно для внепланового ремонта. Неполный отчёт будет возвращён на доработку.
+              {t(
+                'Фото «после» обязательно для внепланового ремонта. Неполный отчёт будет возвращён на доработку.',
+              )}
             </p>
             {photoInput}
             {error && <div className="error">{error}</div>}
             <button className="primary wide" disabled={busy || uploading}>
-              {busy ? 'Проверка…' : 'Отправить на проверку'}
+              {t(busy ? 'Проверка…' : 'Отправить на проверку')}
             </button>
           </form>
         </Modal>
@@ -2995,7 +3100,7 @@ export default function App() {
             setModal('');
             setError('');
           }}
-          title={modal === 'pause' ? 'Приостановить работу' : 'Отклонить наряд'}
+          title={t(modal === 'pause' ? 'Приостановить работу' : 'Отклонить наряд')}
         >
           <form
             onSubmit={async (e) => {
@@ -3013,12 +3118,12 @@ export default function App() {
             }}
           >
             <label>
-              Причина
+              {t('Причина')}
               <textarea name="reason" required placeholder="Например: ожидаем запчасти" />
             </label>
             {error && <p className="error">{error}</p>}
             <button className="primary" disabled={busy}>
-              Подтвердить
+              {t('Подтвердить')}
             </button>
           </form>
         </Modal>

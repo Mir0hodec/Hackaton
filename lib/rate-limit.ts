@@ -1,2 +1,13 @@
-import {db,hash} from './server';
-export async function rateLimit(req:Request,action:string,limit:number,windowMs:number){const address=req.headers.get('cf-connecting-ip')||'local';const slot=Math.floor(Date.now()/windowMs);const id='rate:'+action+':'+slot+':'+await hash(address);const result:any=await db().prepare("INSERT INTO records(id,kind,data,version) VALUES(?,'rate','1',0) ON CONFLICT(id) DO UPDATE SET data=CAST(CAST(data AS INTEGER)+1 AS TEXT) RETURNING data").bind(id).first();return Number(result.data)<=limit;}
+import { db, hash } from './server';
+export async function rateLimit(req: Request, action: string, limit: number, windowMs: number) {
+  const address = req.headers.get('cf-connecting-ip') || 'local';
+  const slot = Math.floor(Date.now() / windowMs);
+  const id = 'rate:' + action + ':' + slot + ':' + (await hash(address));
+  const result: any = await db()
+    .prepare(
+      "INSERT INTO records(id,kind,data,version) VALUES(?,'rate','1',0) ON CONFLICT(id) DO UPDATE SET data=CAST(CAST(data AS INTEGER)+1 AS TEXT) RETURNING data",
+    )
+    .bind(id)
+    .first();
+  return Number(result.data) <= limit;
+}

@@ -1,32 +1,469 @@
-import {workcardAction} from '../../../lib/workcards';
-import {checkDeadlines} from '../../../lib/deadlines';
-import {credentials,verifyPassword} from '../../../lib/password';
-import {pushKeys,subscribePush,removePush,notifyUsers} from '../../../lib/web-push';
-import {rateLimit} from '../../../lib/rate-limit';
-import {aiReview} from '../../../lib/ai-review';
-import {activeMinutes,equipmentDowntime,stopWorkClock} from '../../../lib/timing';
-import {env} from 'cloudflare:workers';
-import {namespace,ownerKey} from '../../../lib/context';
-import {db,bucket,initialize,list,get,save,actor,safeUser,hash,requireRoles,sameOrigin,cookie,nextNumber} from '../../../lib/server';
-import {evaluate,closed} from '../../../lib/domain';
-export const dynamic='force-dynamic';
-function json(data:any,status=200,headers:any={}){return Response.json(data,{status,headers:{'Cache-Control':'no-store',...headers}});}
-export async function GET(req:Request){try{if((env as any).DEMO_ONLY==='true'&&!namespace())return json({user:null,demoOnly:true});await initialize();const u=await actor(req);const users=await list('users');if(!u)return json({user:null,workspace:(env as any).WORKSPACE_MODE==='true',accounts:(env as any).WORKSPACE_MODE==='true'?[]:users.map(safeUser)});if(!u.lastSeen||Date.now()-Date.parse(u.lastSeen)>60000)await save('users',{...u,lastSeen:new Date().toISOString()},u.version).catch(()=>{});await checkDeadlines(new URL(req.url).origin).catch(()=>{});const alerts=(await list('alerts')).filter(a=>a.to?.includes(u.id)).sort((a,b)=>Date.parse(b.created)-Date.parse(a.created)).slice(0,60);const [areas,equipment,codes,materials,all]=await Promise.all(['areas','equipment','codes','materials','orders'].map(list));const worklogs=(await list('worklogs')).filter(x=>u.role!=='worker'||x.id===u.id);return json({serverTime:new Date().toISOString(),worklogs,workspace:(env as any).WORKSPACE_MODE==='true',user:safeUser(u),users:users.filter(x=>u.role!=='worker'||x.id===u.id||x.role==='master'||x.brigade===u.brigade).map(safeUser),areas,equipment,codes,materials,orders:u.role==='worker'?all.filter(o=>o.worker===u.id||o.members?.includes(u.id)):all,alerts,demo:!!namespace(),environmentId:namespace()||'workplace',capabilities:{llm:!!((env as any).OPENAI_API_KEY&&(env as any).OPENAI_MODEL)&&!namespace(),push:!namespace()}});}catch(e:any){console.error(e);return json({error:'Не удалось загрузить данные. Повторите попытку.'},503);}}
-export async function POST(req:Request){try{sameOrigin(req);if((env as any).DEMO_ONLY==='true'&&!namespace())return json({error:'Используйте демонстрационный режим'},403);await initialize();const b:any=await req.json();if(b.action==='login'){if(!await rateLimit(req,'login',30,300000))return json({error:'Слишком много попыток входа. Повторите через 5 минут.'},429);const login=String(b.id||'').trim().toLowerCase();if(!await rateLimit(req,'account-'+await hash(login),12,300000))return json({error:'Слишком много попыток входа. Повторите через 5 минут.'},429);const u=await get('users',login);const valid=u&&!u.disabled&&(u.passwordHash?await verifyPassword(u,String(b.pin||'')):u.pinHash===await hash(u.id+':'+String(b.pin)));if(!valid)return json({error:'Неверный логин или пароль'},401);const token=crypto.randomUUID()+crypto.randomUUID();await db().prepare('INSERT INTO sessions(id,user_id,expires) VALUES(?,?,?)').bind(await hash(token),u.id,Date.now()+43200000).run();return json({ok:true},200,{'Set-Cookie':cookie('naryad_session',token,req)});}const u=await actor(req);if(!u)return json({error:'Войдите в систему'},401);if(b.action==='push-key'){return json({publicKey:(await pushKeys()).publicKey});}if(b.action==='push-subscribe'){await subscribePush(u,String(b.endpoint));return json({ok:true});}if(b.action==='push-unsubscribe'){await removePush(u,String(b.endpoint));return json({ok:true});}if(b.action==='push-test'){if(namespace())throw new Error('Push доступен в основной версии');if(!await rateLimit(req,'push-test',6,60000))return json({error:'Повторите тест через минуту'},429);return json(await notifyUsers([u.id],new URL(req.url).origin));}if(b.action==='logout'){const token=req.headers.get('cookie')?.match(/(?:^|;\s*)naryad_session=([^;]+)/)?.[1];if(token)await db().prepare('DELETE FROM sessions WHERE id=?').bind(await hash(token)).run();return json({ok:true},200,{'Set-Cookie':cookie('naryad_session','',req,0)});}
- if(['work-start','work-progress','work-plan','work-finish','work-cancel','work-review'].includes(b.action))return json(await workcardAction(u,b,new URL(req.url).origin));
- if(b.action==='user-create'){requireRoles(u,['admin']);const d=b.data;const id=String(d.login||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,40}$/.test(id)||!d.name?.trim()||!['master','worker','manager','admin'].includes(d.role))throw new Error('Проверьте логин, имя и роль');if(await get('users',id))throw new Error('Логин уже занят');const account={id,name:String(d.name).trim().slice(0,100),role:d.role,grade:Math.max(1,Math.min(6,Number(d.grade)||4)),spec:String(d.spec||'').slice(0,80),brigade:Math.max(1,Math.min(99,Number(d.brigade)||1)),onShift:d.role==='worker',created:new Date().toISOString(),...await credentials(String(d.password||''))};await save('users',account);return json({ok:true});}
- if(b.action==='user-update'){requireRoles(u,['admin']);const target=await get('users',String(b.id));if(!target)throw new Error('Сотрудник не найден');if(b.disabled&&target.id===u.id)throw new Error('Нельзя заблокировать собственную учётную запись');const changes:any={...target};if(typeof b.disabled==='boolean')changes.disabled=b.disabled;if(b.password)Object.assign(changes,await credentials(String(b.password)));if(b.spec!==undefined)changes.spec=String(b.spec).slice(0,80);if(b.brigade)changes.brigade=Math.max(1,Math.min(99,Number(b.brigade)));await save('users',changes,target.version);if(b.disabled||b.password){await db().prepare('DELETE FROM sessions WHERE user_id=?').bind(target.id).run();await db().prepare("DELETE FROM records WHERE kind='push' AND json_extract(data,'$.user')=?").bind(target.id).run();}return json({ok:true});}
- if(b.action==='password-change'){if(!await verifyPassword(u,String(b.oldPassword||'')))throw new Error('Текущий пароль неверен');await save('users',{...u,...await credentials(String(b.password||''))},u.version);await db().prepare('DELETE FROM sessions WHERE user_id=?').bind(u.id).run();return json({ok:true},200,{'Set-Cookie':cookie('naryad_session','',req,0)});}
- if(b.action==='create'){requireRoles(u,['master']);const d=b.data;if(b.requestId){const old=await get('orders',String(b.requestId));if(old&&old.master===u.id)return json({ok:true,id:old.id});}const eq=await get('equipment',d.equipment);const allUsers=await list('users');const brigade=d.brigade?Number(d.brigade):null;const members=brigade?allUsers.filter(w=>w.role==='worker'&&w.brigade===brigade&&w.onShift&&!w.disabled).map(w=>w.id):[];const worker=await get('users',d.worker||members[0]);if(brigade&&!members.length)throw new Error('В бригаде нет сотрудников на смене');if(!d.title?.trim()||!eq||worker?.role!=='worker'||!worker.onShift||worker.disabled||!['emergency','high','normal','planned'].includes(d.priority)||!['planned','unplanned'].includes(d.type)||!Number.isFinite(Date.parse(d.due)))throw new Error('Заполните описание, оборудование, срок и выберите исполнителя на смене');const existing=await list('orders');const now=new Date().toISOString();const o={id:/^[a-f0-9-]{36}$/.test(b.requestId||'')?b.requestId:crypto.randomUUID(),number:await nextNumber(),title:String(d.title).slice(0,180),description:String(d.description||d.title).slice(0,4000),area:eq.area,equipment:eq.id,worker:worker.id,brigade:brigade||null,members:brigade?members:[worker.id],complexity:Math.min(3,Math.max(1,Number(d.complexity)||1)),downtimeStarted:d.equipmentStopped?now:null,activeMs:0,master:u.id,type:d.type,priority:d.priority,due:d.due,norm:Math.max(1,Number(d.norm)||90),photos:Array.isArray(d.photos)?d.photos.slice(0,5):[],status:'issued',created:now,history:[{at:now,actor:u.id,text:'Наряд выдан'}]};await validatePhotos(o.photos,u.id);await save('orders',o);await notifyUsers(o.members,new URL(req.url).origin).catch(()=>{});return json({ok:true,id:o.id});}
- if(b.action==='catalog-edit'){requireRoles(u,['admin']);if(!['areas','equipment','codes','materials'].includes(b.kind))throw new Error('Неизвестный справочник');const item=await get(b.kind,String(b.id));if(!item)throw new Error('Запись не найдена');const d=b.data;if(!String(d.name||'').trim())throw new Error('Введите название');const update:any={...item,name:String(d.name).trim().slice(0,140)};if(['codes','materials'].includes(b.kind))update.norm=Math.max(1,Number(d.norm)||1);if(b.kind==='materials')update.unit=String(d.unit||'шт.').slice(0,20);if(b.kind==='equipment'){if(!await get('areas',String(d.area)))throw new Error('Выберите участок');update.area=d.area;update.inventory=String(d.inventory||'—').slice(0,80);}await save(b.kind,update,item.version);return json({ok:true});}
- if(b.action==='catalog'){requireRoles(u,['admin']);if(!['areas','equipment','codes','materials'].includes(b.kind))throw new Error('Неизвестный справочник');const x=b.data;if(!x.name?.trim())throw new Error('Укажите название');const item={id:crypto.randomUUID(),name:String(x.name).slice(0,140),...(b.kind==='equipment'?{area:x.area,inventory:x.inventory||'—',critical:false}:{}),...(b.kind==='materials'?{unit:x.unit||'шт.',norm:Math.max(1,Number(x.norm)||1)}:{}),...(b.kind==='codes'?{norm:Math.max(1,Number(x.norm)||60)}:{})};if(b.kind==='equipment'&&!await get('areas',x.area))throw new Error('Выберите участок');await save(b.kind,item);return json({ok:true});}
- if(b.action==='shift'){requireRoles(u,['admin','master']);const w=await get('users',b.id);if(w?.role!=='worker')throw new Error('Исполнитель не найден');await save('users',{...w,onShift:!!b.onShift},w.version);return json({ok:true});}
- const o=await get('orders',b.id);if(!o)throw new Error('Наряд не найден');if(u.role==='worker'&&o.worker!==u.id&&!o.members?.includes(u.id))return json({error:'Нет доступа к этому наряду'},403);if(b.requestId&&o.history?.some((h:any)=>h.requestId===b.requestId))return json({ok:true,id:o.id});const v=o.version;const now=new Date().toISOString();let event='';
- if(b.action==='transition'){requireRoles(u,['worker']);const allowed:any={issued:['accepted','queued','rejected'],accepted:['working','queued','rejected'],queued:['working','accepted','rejected'],working:['paused'],paused:['working'],rework:['working']};if(!allowed[o.status]?.includes(b.status))throw new Error('Такой переход недоступен');if(['paused','rejected'].includes(b.status)&&!b.reason?.trim())throw new Error('Укажите причину');if(b.status==='working'){const all=await list('orders');if(all.some(x=>x.id!==o.id&&(x.worker===u.id||x.members?.includes(u.id))&&x.status==='working'))throw new Error('Сначала приостановите или завершите текущую работу');o.started??=now;o.activeSince=now;}if(b.status==='paused')stopWorkClock(o,now);o.status=b.status;event={accepted:'Наряд принят',queued:'Поставлен в очередь',working:'Начато исполнение',paused:'Работа приостановлена',rejected:'Наряд отклонён'}[b.status as string]||b.status;if(b.reason){o.lastComment=String(b.reason).slice(0,1000);event+=': '+o.lastComment;}if(b.status==='rejected')o.rejectionReason=String(b.reason);}
- else if(b.action==='report'){requireRoles(u,['worker']);if(!['working','paused','rework'].includes(o.status))throw new Error('Сначала начните работу');const r=b.report;const codes=await list('codes');if(r.code&&!codes.some(c=>c.id===r.code))throw new Error('Неизвестный шифр');if(r.photos?.length>5)throw new Error('Не более пяти фото');await validatePhotos(r.photos||[],u.id);const mats=await list('materials');const materialRows=(r.materials||[]).map((m:any)=>{const found=mats.find(x=>x.id===m.id);if(!found||!Number.isFinite(Number(m.qty))||Number(m.qty)<=0)throw new Error('Проверьте количество материалов');return {...found,qty:Number(m.qty)};});o.report={works:String(r.works||'').slice(0,8000),code:r.code,materials:materialRows,photos:r.photos||[],comment:String(r.comment||'').slice(0,2000)};let duplicate=false;for(const photo of o.report.photos){const p:any=await db().prepare('SELECT hash,created FROM photos WHERE id=?').bind(photo).first();if(p){const count:any=await db().prepare('SELECT COUNT(*) AS n FROM photos WHERE hash=? AND user_id=?').bind(p.hash,ownerKey(u.id)).first();if(count.n>1||p.created<Date.parse(o.created))duplicate=true;}}const otherOrders=await list('orders');if(otherOrders.some(x=>x.id!==o.id&&x.report?.photos?.some((id:string)=>o.report.photos.includes(id))))duplicate=true;stopWorkClock(o,now);o.check=evaluate(o,o.report,duplicate);o.check.minutes=activeMinutes(o);o.check=await aiReview(o,o.report,o.check);o.finished=now;o.status=o.check.verdict==='rework'?'rework':'review';if(o.status==='rework')o.returned=true;event=o.status==='rework'?'Проверка: требуется доработка':'Отчёт направлен мастеру';}
- else if(b.action==='decision'){requireRoles(u,['master']);if(!['review','rework'].includes(o.status))throw new Error('Наряд ещё не направлен на проверку');if(b.decision==='return'){if(!b.reason?.trim())throw new Error('Напишите, что нужно доработать');o.status='rework';o.returned=true;event='Мастер вернул на доработку: '+b.reason;}else{if(b.decision!=='accept')throw new Error('Неизвестное решение');if(!b.reason?.trim())throw new Error('Добавьте комментарий мастера');o.status='closed';o.closedAt=now;o.masterScore=Math.min(5,Math.max(1,Number(b.score)||o.check?.score||4));o.masterComment=String(b.reason).slice(0,2000);if(o.downtimeStarted&&!o.downtimeEnded)o.downtimeEnded=now;o.downtime=equipmentDowntime(o);event='Наряд принят мастером. '+o.masterComment;}}
- else if(b.action==='downtime'){requireRoles(u,['master']);if(b.stopped){if(o.downtimeStarted&&!o.downtimeEnded)throw new Error('Простой уже учитывается');o.previousDowntime=equipmentDowntime(o);o.downtimeStarted=now;o.downtimeEnded=null;event='Оборудование остановлено';}else{if(!o.downtimeStarted||o.downtimeEnded)throw new Error('Остановка не зафиксирована или уже завершена');o.downtimeEnded=now;o.downtime=equipmentDowntime(o);event='Работа оборудования восстановлена';}}
- else if(b.action==='edit'){requireRoles(u,['master']);if(closed(o))throw new Error('Наряд уже завершён');if(b.worker&&b.worker!==o.worker){const w=await get('users',b.worker);if(w?.role!=='worker'||!w.onShift||w.disabled)throw new Error('Выберите исполнителя на смене');if(o.status==='working')throw new Error('Для переназначения сначала приостановите работу');o.worker=w.id;o.members=[w.id];o.brigade=null;}if(b.priority){if(!['emergency','high','normal','planned'].includes(b.priority))throw new Error('Неизвестный приоритет');o.priority=b.priority;}if(b.cancel){stopWorkClock(o,now);if(!b.reason?.trim())throw new Error('Укажите причину отмены');o.status='cancelled';}event=b.cancel?'Отменён: '+b.reason:'Изменены назначение / приоритет';}
- else throw new Error('Неизвестное действие');o.history.push({at:now,actor:u.id,text:event,requestId:b.requestId||null});await save('orders',o,v);if(['report','transition'].includes(b.action))await notifyUsers([o.master],new URL(req.url).origin).catch(()=>{});if(['decision','edit'].includes(b.action))await notifyUsers(o.members||[o.worker],new URL(req.url).origin).catch(()=>{});return json({ok:true,id:o.id});
- }catch(e:any){console.error(e);return json({error:e.message||'Не удалось сохранить изменения'},400);}}
-async function validatePhotos(ids:string[],user:string){for(const id of ids){const p:any=await db().prepare('SELECT user_id FROM photos WHERE id=?').bind(id).first();if(!p||p.user_id!==ownerKey(user))throw new Error('Недоступная фотография');}}
+import { workcardAction } from '../../../lib/workcards';
+import { checkDeadlines } from '../../../lib/deadlines';
+import { credentials, verifyPassword } from '../../../lib/password';
+import { pushKeys, subscribePush, removePush, notifyUsers } from '../../../lib/web-push';
+import { rateLimit } from '../../../lib/rate-limit';
+import { aiReview } from '../../../lib/ai-review';
+import { activeMinutes, equipmentDowntime, stopWorkClock } from '../../../lib/timing';
+import { env } from 'cloudflare:workers';
+import { namespace, ownerKey } from '../../../lib/context';
+import {
+  db,
+  bucket,
+  initialize,
+  list,
+  get,
+  save,
+  actor,
+  safeUser,
+  hash,
+  requireRoles,
+  sameOrigin,
+  cookie,
+  nextNumber,
+} from '../../../lib/server';
+import { evaluate, closed } from '../../../lib/domain';
+export const dynamic = 'force-dynamic';
+function json(data: any, status = 200, headers: any = {}) {
+  return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
+}
+export async function GET(req: Request) {
+  try {
+    if ((env as any).DEMO_ONLY === 'true' && !namespace()) return json({ user: null, demoOnly: true });
+    await initialize();
+    const u = await actor(req);
+    const users = await list('users');
+    if (!u)
+      return json({
+        user: null,
+        workspace: (env as any).WORKSPACE_MODE === 'true',
+        accounts: (env as any).WORKSPACE_MODE === 'true' ? [] : users.map(safeUser),
+      });
+    if (!u.lastSeen || Date.now() - Date.parse(u.lastSeen) > 60000)
+      await save('users', { ...u, lastSeen: new Date().toISOString() }, u.version).catch(() => {});
+    await checkDeadlines(new URL(req.url).origin).catch(() => {});
+    const alerts = (await list('alerts'))
+      .filter((a) => a.to?.includes(u.id))
+      .sort((a, b) => Date.parse(b.created) - Date.parse(a.created))
+      .slice(0, 60);
+    const [areas, equipment, codes, materials, all] = await Promise.all(
+      ['areas', 'equipment', 'codes', 'materials', 'orders'].map(list),
+    );
+    const worklogs = (await list('worklogs')).filter((x) => u.role !== 'worker' || x.id === u.id);
+    return json({
+      serverTime: new Date().toISOString(),
+      worklogs,
+      workspace: (env as any).WORKSPACE_MODE === 'true',
+      user: safeUser(u),
+      users: users
+        .filter((x) => u.role !== 'worker' || x.id === u.id || x.role === 'master' || x.brigade === u.brigade)
+        .map(safeUser),
+      areas,
+      equipment,
+      codes,
+      materials,
+      orders: u.role === 'worker' ? all.filter((o) => o.worker === u.id || o.members?.includes(u.id)) : all,
+      alerts,
+      demo: !!namespace(),
+      environmentId: namespace() || 'workplace',
+      capabilities: {
+        llm: !!((env as any).OPENAI_API_KEY && (env as any).OPENAI_MODEL) && !namespace(),
+        push: !namespace(),
+      },
+    });
+  } catch (e: any) {
+    console.error(e);
+    return json({ error: 'Не удалось загрузить данные. Повторите попытку.' }, 503);
+  }
+}
+export async function POST(req: Request) {
+  try {
+    sameOrigin(req);
+    if ((env as any).DEMO_ONLY === 'true' && !namespace())
+      return json({ error: 'Используйте демонстрационный режим' }, 403);
+    await initialize();
+    const b: any = await req.json();
+    if (b.action === 'login') {
+      if (!(await rateLimit(req, 'login', 30, 300000)))
+        return json({ error: 'Слишком много попыток входа. Повторите через 5 минут.' }, 429);
+      const login = String(b.id || '')
+        .trim()
+        .toLowerCase();
+      if (!(await rateLimit(req, 'account-' + (await hash(login)), 12, 300000)))
+        return json({ error: 'Слишком много попыток входа. Повторите через 5 минут.' }, 429);
+      const u = await get('users', login);
+      const valid =
+        u &&
+        !u.disabled &&
+        (u.passwordHash
+          ? await verifyPassword(u, String(b.pin || ''))
+          : u.pinHash === (await hash(u.id + ':' + String(b.pin))));
+      if (!valid) return json({ error: 'Неверный логин или пароль' }, 401);
+      const token = crypto.randomUUID() + crypto.randomUUID();
+      await db()
+        .prepare('INSERT INTO sessions(id,user_id,expires) VALUES(?,?,?)')
+        .bind(await hash(token), u.id, Date.now() + 43200000)
+        .run();
+      return json({ ok: true }, 200, { 'Set-Cookie': cookie('naryad_session', token, req) });
+    }
+    const u = await actor(req);
+    if (!u) return json({ error: 'Войдите в систему' }, 401);
+    if (b.action === 'push-key') {
+      return json({ publicKey: (await pushKeys()).publicKey });
+    }
+    if (b.action === 'push-subscribe') {
+      await subscribePush(u, String(b.endpoint));
+      return json({ ok: true });
+    }
+    if (b.action === 'push-unsubscribe') {
+      await removePush(u, String(b.endpoint));
+      return json({ ok: true });
+    }
+    if (b.action === 'push-test') {
+      if (namespace()) throw new Error('Push доступен в основной версии');
+      if (!(await rateLimit(req, 'push-test', 6, 60000)))
+        return json({ error: 'Повторите тест через минуту' }, 429);
+      return json(await notifyUsers([u.id], new URL(req.url).origin));
+    }
+    if (b.action === 'logout') {
+      const token = req.headers.get('cookie')?.match(/(?:^|;\s*)naryad_session=([^;]+)/)?.[1];
+      if (token)
+        await db()
+          .prepare('DELETE FROM sessions WHERE id=?')
+          .bind(await hash(token))
+          .run();
+      return json({ ok: true }, 200, { 'Set-Cookie': cookie('naryad_session', '', req, 0) });
+    }
+    if (
+      ['work-start', 'work-progress', 'work-plan', 'work-finish', 'work-cancel', 'work-review'].includes(
+        b.action,
+      )
+    )
+      return json(await workcardAction(u, b, new URL(req.url).origin));
+    if (b.action === 'user-create') {
+      requireRoles(u, ['admin']);
+      const d = b.data;
+      const id = String(d.login || '')
+        .trim()
+        .toLowerCase();
+      if (
+        !/^[a-z0-9._-]{3,40}$/.test(id) ||
+        !d.name?.trim() ||
+        !['master', 'worker', 'manager', 'admin'].includes(d.role)
+      )
+        throw new Error('Проверьте логин, имя и роль');
+      if (await get('users', id)) throw new Error('Логин уже занят');
+      const account = {
+        id,
+        name: String(d.name).trim().slice(0, 100),
+        role: d.role,
+        grade: Math.max(1, Math.min(6, Number(d.grade) || 4)),
+        spec: String(d.spec || '').slice(0, 80),
+        brigade: Math.max(1, Math.min(99, Number(d.brigade) || 1)),
+        onShift: d.role === 'worker',
+        created: new Date().toISOString(),
+        ...(await credentials(String(d.password || ''))),
+      };
+      await save('users', account);
+      return json({ ok: true });
+    }
+    if (b.action === 'user-update') {
+      requireRoles(u, ['admin']);
+      const target = await get('users', String(b.id));
+      if (!target) throw new Error('Сотрудник не найден');
+      if (b.disabled && target.id === u.id)
+        throw new Error('Нельзя заблокировать собственную учётную запись');
+      const changes: any = { ...target };
+      if (typeof b.disabled === 'boolean') changes.disabled = b.disabled;
+      if (b.password) Object.assign(changes, await credentials(String(b.password)));
+      if (b.spec !== undefined) changes.spec = String(b.spec).slice(0, 80);
+      if (b.brigade) changes.brigade = Math.max(1, Math.min(99, Number(b.brigade)));
+      await save('users', changes, target.version);
+      if (b.disabled || b.password) {
+        await db().prepare('DELETE FROM sessions WHERE user_id=?').bind(target.id).run();
+        await db()
+          .prepare("DELETE FROM records WHERE kind='push' AND json_extract(data,'$.user')=?")
+          .bind(target.id)
+          .run();
+      }
+      return json({ ok: true });
+    }
+    if (b.action === 'password-change') {
+      if (!(await verifyPassword(u, String(b.oldPassword || '')))) throw new Error('Текущий пароль неверен');
+      await save('users', { ...u, ...(await credentials(String(b.password || ''))) }, u.version);
+      await db().prepare('DELETE FROM sessions WHERE user_id=?').bind(u.id).run();
+      return json({ ok: true }, 200, { 'Set-Cookie': cookie('naryad_session', '', req, 0) });
+    }
+    if (b.action === 'create') {
+      requireRoles(u, ['master']);
+      const d = b.data;
+      if (b.requestId) {
+        const old = await get('orders', String(b.requestId));
+        if (old && old.master === u.id) return json({ ok: true, id: old.id });
+      }
+      const eq = await get('equipment', d.equipment);
+      const allUsers = await list('users');
+      const brigade = d.brigade ? Number(d.brigade) : null;
+      const members = brigade
+        ? allUsers
+            .filter((w) => w.role === 'worker' && w.brigade === brigade && w.onShift && !w.disabled)
+            .map((w) => w.id)
+        : [];
+      const worker = await get('users', d.worker || members[0]);
+      if (brigade && !members.length) throw new Error('В бригаде нет сотрудников на смене');
+      if (
+        !d.title?.trim() ||
+        !eq ||
+        worker?.role !== 'worker' ||
+        !worker.onShift ||
+        worker.disabled ||
+        !['emergency', 'high', 'normal', 'planned'].includes(d.priority) ||
+        !['planned', 'unplanned'].includes(d.type) ||
+        !Number.isFinite(Date.parse(d.due))
+      )
+        throw new Error('Заполните описание, оборудование, срок и выберите исполнителя на смене');
+      const existing = await list('orders');
+      const now = new Date().toISOString();
+      const o = {
+        id: /^[a-f0-9-]{36}$/.test(b.requestId || '') ? b.requestId : crypto.randomUUID(),
+        number: await nextNumber(),
+        title: String(d.title).slice(0, 180),
+        description: String(d.description || d.title).slice(0, 4000),
+        area: eq.area,
+        equipment: eq.id,
+        worker: worker.id,
+        brigade: brigade || null,
+        members: brigade ? members : [worker.id],
+        complexity: Math.min(3, Math.max(1, Number(d.complexity) || 1)),
+        downtimeStarted: d.equipmentStopped ? now : null,
+        activeMs: 0,
+        master: u.id,
+        type: d.type,
+        priority: d.priority,
+        due: d.due,
+        norm: Math.max(1, Number(d.norm) || 90),
+        photos: Array.isArray(d.photos) ? d.photos.slice(0, 5) : [],
+        status: 'issued',
+        created: now,
+        history: [{ at: now, actor: u.id, text: 'Наряд выдан' }],
+      };
+      await validatePhotos(o.photos, u.id);
+      await save('orders', o);
+      await notifyUsers(o.members, new URL(req.url).origin).catch(() => {});
+      return json({ ok: true, id: o.id });
+    }
+    if (b.action === 'catalog-edit') {
+      requireRoles(u, ['admin']);
+      if (!['areas', 'equipment', 'codes', 'materials'].includes(b.kind))
+        throw new Error('Неизвестный справочник');
+      const item = await get(b.kind, String(b.id));
+      if (!item) throw new Error('Запись не найдена');
+      const d = b.data;
+      if (!String(d.name || '').trim()) throw new Error('Введите название');
+      const update: any = { ...item, name: String(d.name).trim().slice(0, 140) };
+      if (['codes', 'materials'].includes(b.kind)) update.norm = Math.max(1, Number(d.norm) || 1);
+      if (b.kind === 'materials') update.unit = String(d.unit || 'шт.').slice(0, 20);
+      if (b.kind === 'equipment') {
+        if (!(await get('areas', String(d.area)))) throw new Error('Выберите участок');
+        update.area = d.area;
+        update.inventory = String(d.inventory || '—').slice(0, 80);
+      }
+      await save(b.kind, update, item.version);
+      return json({ ok: true });
+    }
+    if (b.action === 'catalog') {
+      requireRoles(u, ['admin']);
+      if (!['areas', 'equipment', 'codes', 'materials'].includes(b.kind))
+        throw new Error('Неизвестный справочник');
+      const x = b.data;
+      if (!x.name?.trim()) throw new Error('Укажите название');
+      const item = {
+        id: crypto.randomUUID(),
+        name: String(x.name).slice(0, 140),
+        ...(b.kind === 'equipment' ? { area: x.area, inventory: x.inventory || '—', critical: false } : {}),
+        ...(b.kind === 'materials' ? { unit: x.unit || 'шт.', norm: Math.max(1, Number(x.norm) || 1) } : {}),
+        ...(b.kind === 'codes' ? { norm: Math.max(1, Number(x.norm) || 60) } : {}),
+      };
+      if (b.kind === 'equipment' && !(await get('areas', x.area))) throw new Error('Выберите участок');
+      await save(b.kind, item);
+      return json({ ok: true });
+    }
+    if (b.action === 'shift') {
+      requireRoles(u, ['admin', 'master']);
+      const w = await get('users', b.id);
+      if (w?.role !== 'worker') throw new Error('Исполнитель не найден');
+      await save('users', { ...w, onShift: !!b.onShift }, w.version);
+      return json({ ok: true });
+    }
+    const o = await get('orders', b.id);
+    if (!o) throw new Error('Наряд не найден');
+    if (u.role === 'worker' && o.worker !== u.id && !o.members?.includes(u.id))
+      return json({ error: 'Нет доступа к этому наряду' }, 403);
+    if (b.requestId && o.history?.some((h: any) => h.requestId === b.requestId))
+      return json({ ok: true, id: o.id });
+    const v = o.version;
+    const now = new Date().toISOString();
+    let event = '';
+    if (b.action === 'transition') {
+      requireRoles(u, ['worker']);
+      const allowed: any = {
+        issued: ['accepted', 'queued', 'rejected'],
+        accepted: ['working', 'queued', 'rejected'],
+        queued: ['working', 'accepted', 'rejected'],
+        working: ['paused'],
+        paused: ['working'],
+        rework: ['working'],
+      };
+      if (!allowed[o.status]?.includes(b.status)) throw new Error('Такой переход недоступен');
+      if (['paused', 'rejected'].includes(b.status) && !b.reason?.trim()) throw new Error('Укажите причину');
+      if (b.status === 'working') {
+        const all = await list('orders');
+        if (
+          all.some(
+            (x) =>
+              x.id !== o.id && (x.worker === u.id || x.members?.includes(u.id)) && x.status === 'working',
+          )
+        )
+          throw new Error('Сначала приостановите или завершите текущую работу');
+        o.started ??= now;
+        o.activeSince = now;
+      }
+      if (b.status === 'paused') stopWorkClock(o, now);
+      o.status = b.status;
+      event =
+        {
+          accepted: 'Наряд принят',
+          queued: 'Поставлен в очередь',
+          working: 'Начато исполнение',
+          paused: 'Работа приостановлена',
+          rejected: 'Наряд отклонён',
+        }[b.status as string] || b.status;
+      if (b.reason) {
+        o.lastComment = String(b.reason).slice(0, 1000);
+        event += ': ' + o.lastComment;
+      }
+      if (b.status === 'rejected') o.rejectionReason = String(b.reason);
+    } else if (b.action === 'report') {
+      requireRoles(u, ['worker']);
+      if (!['working', 'paused', 'rework'].includes(o.status)) throw new Error('Сначала начните работу');
+      const r = b.report;
+      const codes = await list('codes');
+      if (r.code && !codes.some((c) => c.id === r.code)) throw new Error('Неизвестный шифр');
+      if (r.photos?.length > 5) throw new Error('Не более пяти фото');
+      await validatePhotos(r.photos || [], u.id);
+      const mats = await list('materials');
+      const materialRows = (r.materials || []).map((m: any) => {
+        const found = mats.find((x) => x.id === m.id);
+        if (!found || !Number.isFinite(Number(m.qty)) || Number(m.qty) <= 0)
+          throw new Error('Проверьте количество материалов');
+        return { ...found, qty: Number(m.qty) };
+      });
+      o.report = {
+        works: String(r.works || '').slice(0, 8000),
+        code: r.code,
+        materials: materialRows,
+        photos: r.photos || [],
+        comment: String(r.comment || '').slice(0, 2000),
+      };
+      let duplicate = false;
+      for (const photo of o.report.photos) {
+        const p: any = await db().prepare('SELECT hash,created FROM photos WHERE id=?').bind(photo).first();
+        if (p) {
+          const count: any = await db()
+            .prepare('SELECT COUNT(*) AS n FROM photos WHERE hash=? AND user_id=?')
+            .bind(p.hash, ownerKey(u.id))
+            .first();
+          if (count.n > 1 || p.created < Date.parse(o.created)) duplicate = true;
+        }
+      }
+      const otherOrders = await list('orders');
+      if (
+        otherOrders.some(
+          (x) => x.id !== o.id && x.report?.photos?.some((id: string) => o.report.photos.includes(id)),
+        )
+      )
+        duplicate = true;
+      stopWorkClock(o, now);
+      o.check = evaluate(o, o.report, duplicate);
+      o.check.minutes = activeMinutes(o);
+      o.check = await aiReview(o, o.report, o.check);
+      o.finished = now;
+      o.status = o.check.verdict === 'rework' ? 'rework' : 'review';
+      if (o.status === 'rework') o.returned = true;
+      event = o.status === 'rework' ? 'Проверка: требуется доработка' : 'Отчёт направлен мастеру';
+    } else if (b.action === 'decision') {
+      requireRoles(u, ['master']);
+      if (!['review', 'rework'].includes(o.status)) throw new Error('Наряд ещё не направлен на проверку');
+      if (b.decision === 'return') {
+        if (!b.reason?.trim()) throw new Error('Напишите, что нужно доработать');
+        o.status = 'rework';
+        o.returned = true;
+        event = 'Мастер вернул на доработку: ' + b.reason;
+      } else {
+        if (b.decision !== 'accept') throw new Error('Неизвестное решение');
+        if (!b.reason?.trim()) throw new Error('Добавьте комментарий мастера');
+        o.status = 'closed';
+        o.closedAt = now;
+        o.masterScore = Math.min(5, Math.max(1, Number(b.score) || o.check?.score || 4));
+        o.masterComment = String(b.reason).slice(0, 2000);
+        if (o.downtimeStarted && !o.downtimeEnded) o.downtimeEnded = now;
+        o.downtime = equipmentDowntime(o);
+        event = 'Наряд принят мастером. ' + o.masterComment;
+      }
+    } else if (b.action === 'downtime') {
+      requireRoles(u, ['master']);
+      if (b.stopped) {
+        if (o.downtimeStarted && !o.downtimeEnded) throw new Error('Простой уже учитывается');
+        o.previousDowntime = equipmentDowntime(o);
+        o.downtimeStarted = now;
+        o.downtimeEnded = null;
+        event = 'Оборудование остановлено';
+      } else {
+        if (!o.downtimeStarted || o.downtimeEnded)
+          throw new Error('Остановка не зафиксирована или уже завершена');
+        o.downtimeEnded = now;
+        o.downtime = equipmentDowntime(o);
+        event = 'Работа оборудования восстановлена';
+      }
+    } else if (b.action === 'edit') {
+      requireRoles(u, ['master']);
+      if (closed(o)) throw new Error('Наряд уже завершён');
+      if (b.worker && b.worker !== o.worker) {
+        const w = await get('users', b.worker);
+        if (w?.role !== 'worker' || !w.onShift || w.disabled)
+          throw new Error('Выберите исполнителя на смене');
+        if (o.status === 'working') throw new Error('Для переназначения сначала приостановите работу');
+        o.worker = w.id;
+        o.members = [w.id];
+        o.brigade = null;
+      }
+      if (b.priority) {
+        if (!['emergency', 'high', 'normal', 'planned'].includes(b.priority))
+          throw new Error('Неизвестный приоритет');
+        o.priority = b.priority;
+      }
+      if (b.cancel) {
+        stopWorkClock(o, now);
+        if (!b.reason?.trim()) throw new Error('Укажите причину отмены');
+        o.status = 'cancelled';
+      }
+      event = b.cancel ? 'Отменён: ' + b.reason : 'Изменены назначение / приоритет';
+    } else throw new Error('Неизвестное действие');
+    o.history.push({ at: now, actor: u.id, text: event, requestId: b.requestId || null });
+    await save('orders', o, v);
+    if (['report', 'transition'].includes(b.action))
+      await notifyUsers([o.master], new URL(req.url).origin).catch(() => {});
+    if (['decision', 'edit'].includes(b.action))
+      await notifyUsers(o.members || [o.worker], new URL(req.url).origin).catch(() => {});
+    return json({ ok: true, id: o.id });
+  } catch (e: any) {
+    console.error(e);
+    return json({ error: e.message || 'Не удалось сохранить изменения' }, 400);
+  }
+}
+async function validatePhotos(ids: string[], user: string) {
+  for (const id of ids) {
+    const p: any = await db().prepare('SELECT user_id FROM photos WHERE id=?').bind(id).first();
+    if (!p || p.user_id !== ownerKey(user)) throw new Error('Недоступная фотография');
+  }
+}

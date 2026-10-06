@@ -1,10 +1,120 @@
-import {db,hash,list} from './server';
-import {namespace} from './context';
-import {Buffer} from 'node:buffer';
-const b64=(value:ArrayBuffer|Uint8Array|string)=>Buffer.from(typeof value==='string'?new TextEncoder().encode(value):new Uint8Array(value)).toString('base64url');
+import { db, hash, list } from './server';
+import { namespace } from './context';
+import { Buffer } from 'node:buffer';
+const b64 = (value: ArrayBuffer | Uint8Array | string) =>
+  Buffer.from(typeof value === 'string' ? new TextEncoder().encode(value) : new Uint8Array(value)).toString(
+    'base64url',
+  );
 // RFC 8292; empty payload carries no employee or production data to a push provider.
-export async function pushKeys(){const current:any=await db().prepare("SELECT data FROM records WHERE id='web-push-vapid'").first();if(current)return JSON.parse(current.data);const pair=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);const value={publicKey:b64(await crypto.subtle.exportKey('raw',pair.publicKey)),privateKey:await crypto.subtle.exportKey('jwk',pair.privateKey)};await db().prepare("INSERT OR IGNORE INTO records(id,kind,data,version) VALUES('web-push-vapid','server-secret',?,0)").bind(JSON.stringify(value)).run();const stored:any=await db().prepare("SELECT data FROM records WHERE id='web-push-vapid'").first();return JSON.parse(stored.data);}
-export function validPushEndpoint(endpoint:string){try{const u=new URL(endpoint);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&(u.hostname==='fcm.googleapis.com'||u.hostname==='web.push.apple.com'||u.hostname==='updates.push.services.mozilla.com'||u.hostname.endsWith('.notify.windows.com'));}catch{return false;}}
-export async function subscribePush(user:any,endpoint:string){if(namespace())throw new Error('Push подключается в основной версии. В демо доступны уведомления внутри приложения.');if(!validPushEndpoint(endpoint)||endpoint.length>4096)throw new Error('Неподдерживаемый адрес push-службы');const id='push:'+await hash(endpoint);await db().prepare("INSERT INTO records(id,kind,data,version) VALUES(?,'push',?,0) ON CONFLICT(id) DO UPDATE SET data=excluded.data,version=version+1").bind(id,JSON.stringify({id,user:user.id,endpoint})).run();}
-export async function removePush(user:any,endpoint:string){await db().prepare("DELETE FROM records WHERE id=? AND json_extract(data,'$.user')=?").bind('push:'+await hash(endpoint),user.id).run();}
-export async function notifyUsers(ids:string[],origin:string){if(namespace())return {sent:0,failed:0};const subs=(await list('push')).filter(s=>ids.includes(s.user));if(!subs.length)return {sent:0,failed:0};const keys=await pushKeys();const key=await crypto.subtle.importKey('jwk',keys.privateKey,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);let sent=0,failed=0;await Promise.all(subs.slice(0,30).map(async sub=>{try{if(!validPushEndpoint(sub.endpoint))return;const claims=b64(JSON.stringify({typ:'JWT',alg:'ES256'}))+'.'+b64(JSON.stringify({aud:new URL(sub.endpoint).origin,exp:Math.floor(Date.now()/1000)+3600,sub:origin}));const signature=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,new TextEncoder().encode(claims));const response=await fetch(sub.endpoint,{method:'POST',headers:{Authorization:`vapid t=${claims}.${b64(signature)}, k=${keys.publicKey}`,TTL:'3600',Urgency:'high'},redirect:'error',signal:AbortSignal.timeout(2500)});if(response.ok)sent++;else{failed++;if([404,410].includes(response.status))await db().prepare('DELETE FROM records WHERE id=?').bind(sub.id).run();}}catch{failed++;}}));return {sent,failed};}
+export async function pushKeys() {
+  const current: any = await db().prepare("SELECT data FROM records WHERE id='web-push-vapid'").first();
+  if (current) return JSON.parse(current.data);
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+    'sign',
+    'verify',
+  ]);
+  const value = {
+    publicKey: b64(await crypto.subtle.exportKey('raw', pair.publicKey)),
+    privateKey: await crypto.subtle.exportKey('jwk', pair.privateKey),
+  };
+  await db()
+    .prepare(
+      "INSERT OR IGNORE INTO records(id,kind,data,version) VALUES('web-push-vapid','server-secret',?,0)",
+    )
+    .bind(JSON.stringify(value))
+    .run();
+  const stored: any = await db().prepare("SELECT data FROM records WHERE id='web-push-vapid'").first();
+  return JSON.parse(stored.data);
+}
+export function validPushEndpoint(endpoint: string) {
+  try {
+    const u = new URL(endpoint);
+    return (
+      u.protocol === 'https:' &&
+      !u.username &&
+      !u.password &&
+      !u.port &&
+      (u.hostname === 'fcm.googleapis.com' ||
+        u.hostname === 'web.push.apple.com' ||
+        u.hostname === 'updates.push.services.mozilla.com' ||
+        u.hostname.endsWith('.notify.windows.com'))
+    );
+  } catch {
+    return false;
+  }
+}
+export async function subscribePush(user: any, endpoint: string) {
+  if (namespace())
+    throw new Error('Push подключается в основной версии. В демо доступны уведомления внутри приложения.');
+  if (!validPushEndpoint(endpoint) || endpoint.length > 4096)
+    throw new Error('Неподдерживаемый адрес push-службы');
+  const id = 'push:' + (await hash(endpoint));
+  await db()
+    .prepare(
+      "INSERT INTO records(id,kind,data,version) VALUES(?,'push',?,0) ON CONFLICT(id) DO UPDATE SET data=excluded.data,version=version+1",
+    )
+    .bind(id, JSON.stringify({ id, user: user.id, endpoint }))
+    .run();
+}
+export async function removePush(user: any, endpoint: string) {
+  await db()
+    .prepare("DELETE FROM records WHERE id=? AND json_extract(data,'$.user')=?")
+    .bind('push:' + (await hash(endpoint)), user.id)
+    .run();
+}
+export async function notifyUsers(ids: string[], origin: string) {
+  if (namespace()) return { sent: 0, failed: 0 };
+  const subs = (await list('push')).filter((s) => ids.includes(s.user));
+  if (!subs.length) return { sent: 0, failed: 0 };
+  const keys = await pushKeys();
+  const key = await crypto.subtle.importKey(
+    'jwk',
+    keys.privateKey,
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign'],
+  );
+  let sent = 0,
+    failed = 0;
+  await Promise.all(
+    subs.slice(0, 30).map(async (sub) => {
+      try {
+        if (!validPushEndpoint(sub.endpoint)) return;
+        const claims =
+          b64(JSON.stringify({ typ: 'JWT', alg: 'ES256' })) +
+          '.' +
+          b64(
+            JSON.stringify({
+              aud: new URL(sub.endpoint).origin,
+              exp: Math.floor(Date.now() / 1000) + 3600,
+              sub: origin,
+            }),
+          );
+        const signature = await crypto.subtle.sign(
+          { name: 'ECDSA', hash: 'SHA-256' },
+          key,
+          new TextEncoder().encode(claims),
+        );
+        const response = await fetch(sub.endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `vapid t=${claims}.${b64(signature)}, k=${keys.publicKey}`,
+            TTL: '3600',
+            Urgency: 'high',
+          },
+          redirect: 'error',
+          signal: AbortSignal.timeout(2500),
+        });
+        if (response.ok) sent++;
+        else {
+          failed++;
+          if ([404, 410].includes(response.status))
+            await db().prepare('DELETE FROM records WHERE id=?').bind(sub.id).run();
+        }
+      } catch {
+        failed++;
+      }
+    }),
+  );
+  return { sent, failed };
+}

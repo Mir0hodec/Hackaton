@@ -1,5 +1,5 @@
 import { namespace, ownerKey } from '../../../lib/context';
-import { actor, bucket, db, sameOrigin, list, save } from '../../../lib/server';
+import { actor, bucket, db, sameOrigin, list, save, photoLimit } from '../../../lib/server';
 export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
@@ -10,8 +10,11 @@ export async function POST(req: Request) {
     if (!u || !['master', 'worker'].includes(u.role))
       return Response.json({ error: 'Нет доступа' }, { status: 403 });
     const file = data.get('file') as File;
-    if (!file || file.size > 6 * 1024 * 1024)
-      return Response.json({ error: 'Фото должно быть меньше 6 МБ' }, { status: 400 });
+    if (!file || file.size > photoLimit())
+      return Response.json(
+        { error: `Фото должно быть меньше ${Math.floor((photoLimit() / 1024 / 1024) * 10) / 10} МБ` },
+        { status: 400 },
+      );
     const bytes = await file.arrayBuffer();
     const a = new Uint8Array(bytes);
     const mime =

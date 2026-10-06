@@ -40,7 +40,8 @@ const localBindingConfig = {
         },
       ]
     : [],
-  r2_buckets: r2
+  // NARYADAI_CF_BUCKET=none — R2 не включён в аккаунте, фото хранятся в D1 (lib/server.ts).
+  r2_buckets: r2 && ownCloudflare?.bucket !== "none"
     ? [
         {
           binding: r2,

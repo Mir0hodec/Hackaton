@@ -6,10 +6,53 @@ export function db() {
   if (!env.DB) throw new Error('Хранилище временно недоступно');
   return env.DB;
 }
-export function bucket() {
-  if (!env.BUCKET) throw new Error('Хранилище фото недоступно');
-  return env.BUCKET;
+/** Хранилище фото: R2, а без него (R2 не включён в аккаунте) — таблица в D1. */
+export function bucket(): Pick<R2Bucket, 'put' | 'get'> {
+  if (env.BUCKET) return env.BUCKET;
+  return d1PhotoStore as unknown as Pick<R2Bucket, 'put' | 'get'>;
 }
+/** Без R2 фото хранится в D1 (base64; строка D1 — до 2 МБ, поэтому лимит файла 1,4 МБ). */
+export const photoLimit = () => (env.BUCKET ? 6 * 1024 * 1024 : 1.4 * 1024 * 1024);
+let blobTableReady = false;
+async function blobTable() {
+  if (blobTableReady) return;
+  await db()
+    .prepare(
+      'CREATE TABLE IF NOT EXISTS photo_blobs (id TEXT PRIMARY KEY, content_type TEXT NOT NULL, data TEXT NOT NULL)',
+    )
+    .run();
+  blobTableReady = true;
+}
+const d1PhotoStore = {
+  async put(id: string, bytes: ArrayBuffer, options?: { httpMetadata?: { contentType?: string } }) {
+    await blobTable();
+    let binary = '';
+    const view = new Uint8Array(bytes);
+    for (let i = 0; i < view.length; i += 0x8000)
+      binary += String.fromCharCode(...view.subarray(i, i + 0x8000));
+    await db()
+      .prepare('INSERT OR REPLACE INTO photo_blobs(id,content_type,data) VALUES(?,?,?)')
+      .bind(id, options?.httpMetadata?.contentType || 'image/jpeg', btoa(binary))
+      .run();
+    return null;
+  },
+  async get(id: string) {
+    await blobTable();
+    const row: any = await db()
+      .prepare('SELECT content_type,data FROM photo_blobs WHERE id=?')
+      .bind(id)
+      .first();
+    if (!row) return null;
+    const raw = atob(row.data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return {
+      body: bytes,
+      httpMetadata: { contentType: row.content_type },
+      arrayBuffer: async () => bytes.buffer,
+    };
+  },
+};
 export async function hash(value: string) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
     .map((b) => b.toString(16).padStart(2, '0'))

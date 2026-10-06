@@ -45,10 +45,18 @@ if (!state.d1Id) {
   writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
 }
 
-console.log(`Проверяю бакет R2 «${state.bucket}»…`);
-const bucket = wrangler(['r2', 'bucket', 'create', state.bucket], { capture: true, allowFail: true });
-if (!bucket.ok && !/already exists|already own/i.test(bucket.out)) {
-  throw new Error('Не удалось создать бакет R2. Включите R2 в панели Cloudflare.\n' + bucket.out);
+// Без включённого R2 (требует карту в панели Cloudflare) фото хранятся в D1.
+const wantedBucket = state.bucket === 'none' ? 'naryadai-photos' : state.bucket;
+console.log(`Проверяю бакет R2 «${wantedBucket}»…`);
+const bucket = wrangler(['r2', 'bucket', 'create', wantedBucket], { capture: true, allowFail: true });
+if (bucket.ok || /already exists|already own/i.test(bucket.out)) state.bucket = wantedBucket;
+else if (/enable R2|10042/i.test(bucket.out)) {
+  console.log(
+    'R2 не включён: фото будут храниться в базе D1. Включите R2 в панели и повторите деплой, чтобы перейти на R2.',
+  );
+  state.bucket = 'none';
+} else {
+  throw new Error('Не удалось создать бакет R2.\n' + bucket.out);
 }
 
 console.log('Собираю проект…');

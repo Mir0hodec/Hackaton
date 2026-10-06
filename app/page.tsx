@@ -373,30 +373,6 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    if (!user || !data?.equipment) return;
-    const params = new URLSearchParams(window.location.search);
-    const eq = params.get('eq');
-    if (!eq) return;
-    params.delete('eq');
-    window.history.replaceState(
-      null,
-      '',
-      window.location.pathname + (params.toString() ? '?' + params.toString() : ''),
-    );
-    const found = equipmentFromQr(eq, data.equipment);
-    if (!found) return;
-    if (user.role === 'master') {
-      setFormEq(found.id);
-      setFormArea(found.area);
-      setPhotos([]);
-      setModal('quick');
-    } else {
-      setEquipmentFilter(found.id);
-      setFilter('all');
-      setTab('orders');
-    }
-  }, [user?.id, !!data?.equipment]);
-  useEffect(() => {
     if (!user) return;
     const params = new URLSearchParams(window.location.search);
     const target = params.get('order');
@@ -761,6 +737,31 @@ export default function App() {
     [formEq, setFormEq] = useState(''),
     [formArea, setFormArea] = useState(''),
     [assignment, setAssignment] = useState('person');
+  // Ссылка из QR (?eq=) открывает мастеру быстрый наряд по этому оборудованию.
+  useEffect(() => {
+    if (!user || !data?.equipment) return;
+    const params = new URLSearchParams(window.location.search);
+    const eq = params.get('eq');
+    if (!eq) return;
+    params.delete('eq');
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (params.toString() ? '?' + params.toString() : ''),
+    );
+    const found = equipmentFromQr(eq, data.equipment);
+    if (!found) return;
+    if (user.role === 'master') {
+      setFormEq(found.id);
+      setFormArea(found.area);
+      setPhotos([]);
+      setModal('quick');
+    } else {
+      setEquipmentFilter(found.id);
+      setFilter('all');
+      setTab('orders');
+    }
+  }, [user?.id, !!data?.equipment]);
   useEffect(() => {
     if (modal === 'report' && reportForm.current && order && user)
       putLocal('drafts', data.environmentId + ':' + user.id + ':report:' + order.id, {

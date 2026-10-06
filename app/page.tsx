@@ -1244,6 +1244,12 @@ export default function App() {
                   <h1>{order.title}</h1>
                 </div>
                 <Status o={order} />
+                {user.role !== 'worker' && (
+                  <button className="no-print" onClick={() => window.print()}>
+                    <FileText size={18} />
+                    PDF
+                  </button>
+                )}
               </div>
               <div className="detail-grid">
                 <section className="panel">

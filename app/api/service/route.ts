@@ -29,7 +29,9 @@ import {
 import { evaluate, closed, formatServerTime } from '../../../lib/domain';
 import { hamming } from '../../../lib/photo-meta';
 export const dynamic = 'force-dynamic';
-const RECENT_MS = 3 * 86400000; // закрытые наряды за 3 дня остаются в оперативной ленте
+// Закрытые наряды остаются в оперативной ленте: мастеру — 3 дня, исполнителю — 14 дней (свои оценки).
+const RECENT_MS = 3 * 86400000;
+const RECENT_WORKER_MS = 14 * 86400000;
 function json(data: any, status = 200, headers: any = {}) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 }
@@ -95,7 +97,9 @@ export async function GET(req: Request) {
       orders: all.filter(
         (o) =>
           (u.role !== 'worker' || o.worker === u.id || o.members?.includes(u.id)) &&
-          (!closed(o) || Date.now() - Date.parse(o.updatedAt || o.closedAt || o.created) < RECENT_MS) &&
+          (!closed(o) ||
+            Date.now() - Date.parse(o.updatedAt || o.closedAt || o.created) <
+              (u.role === 'worker' ? RECENT_WORKER_MS : RECENT_MS)) &&
           !(o.synthetic && closed(o)),
       ),
       history: u.role === 'admin' ? await historyStatus() : undefined,

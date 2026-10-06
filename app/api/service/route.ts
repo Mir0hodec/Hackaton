@@ -116,11 +116,12 @@ export async function GET(req: Request) {
 }
 export async function POST(req: Request) {
   try {
+    // Тело читается до проверок: недочитанный запрос перезапускает локальный workerd.
+    const b: any = await req.json();
     sameOrigin(req);
     if ((env as any).DEMO_ONLY === 'true' && !namespace())
       return json({ error: 'Используйте демонстрационный режим' }, 403);
     await initialize();
-    const b: any = await req.json();
     if (b.action === 'login') {
       if (!(await rateLimit(req, 'login', 30, 300000)))
         return json({ error: 'Слишком много попыток входа. Повторите через 5 минут.' }, 429);

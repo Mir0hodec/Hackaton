@@ -32,7 +32,7 @@ import {
   SlidersHorizontal,
   ArrowUpRight,
 } from 'lucide-react';
-import { roles, statuses, priorities, closed, overdue, rating } from '../lib/domain';
+import { roles, statuses, priorities, closed, overdue } from '../lib/domain';
 import { WorkProfile, WorkSummary, currentWork, workRating } from '../components/work-tracking';
 import { ReportsPage, ManagerDashboard, MyRating, useAnalytics } from '../components/reports';
 import { HistoryPanel, SettingsPanel } from '../components/admin-panels';
@@ -43,6 +43,8 @@ import { readExifDate, dHash } from '../lib/photo-meta';
 import { OrderReport } from '../components/order-report';
 import { AssigneeHint, CodeHint, useRecommendation } from '../components/assist';
 import { UrgentBanner, playAlarm, playChime, unlockAudio } from '../components/urgent';
+import { VoiceButton } from '../components/voice';
+import { AssistantChat } from '../components/assistant-chat';
 const roleIcons: any = {
   master: ClipboardCheck,
   worker: Wrench,
@@ -115,6 +117,7 @@ export default function App() {
     [install, setInstall] = useState<any>(null),
     [urgent, setUrgent] = useState<any>(null);
   const seenAlerts = useRef<{ scope: string; ids: Set<string> }>({ scope: '', ids: new Set() });
+  const voiceLang = 'ru-RU';
   const load = useCallback(async () => {
     try {
       const api = endpoint();
@@ -2063,6 +2066,9 @@ export default function App() {
           {toast}
         </div>
       )}
+      {['master', 'manager', 'admin'].includes(user.role) && (
+        <AssistantChat api={demo ? '/api/demo-assistant' : '/api/assistant'} />
+      )}
       {urgent && (
         <UrgentBanner
           title={urgent.title}
@@ -2464,8 +2470,11 @@ export default function App() {
               {quickEmergency ? 'Аварийный — срочно в работу' : 'Высокий приоритет'}
             </button>
             <label>
-              Задание
+              <span className="label-row">
+                Задание <VoiceButton target="quick-title" lang={voiceLang} />
+              </span>
               <input
+                id="quick-title"
                 required
                 value={quickTitle}
                 onChange={(e) => setQuickTitle(e.target.value)}
@@ -2695,12 +2704,27 @@ export default function App() {
             <input type="hidden" name="suggestedCode" value={createRec.result?.code?.id || ''} />
             <input type="hidden" name="recommendedWorker" value={createRec.result?.ranked?.[0]?.id || ''} />
             <label>
-              Проблема / задание
-              <input name="title" required placeholder="Например: течь масла на насосе" maxLength={180} />
+              <span className="label-row">
+                Проблема / задание <VoiceButton target="create-title" lang={voiceLang} />
+              </span>
+              <input
+                id="create-title"
+                name="title"
+                required
+                placeholder="Например: течь масла на насосе"
+                maxLength={180}
+              />
             </label>
             <label>
-              Подробности
-              <textarea name="description" rows={2} placeholder="Что необходимо выполнить" />
+              <span className="label-row">
+                Подробности <VoiceButton target="create-description" lang={voiceLang} />
+              </span>
+              <textarea
+                id="create-description"
+                name="description"
+                rows={2}
+                placeholder="Что необходимо выполнить"
+              />
             </label>
             <div className="form-grid">
               <label>
@@ -2879,8 +2903,11 @@ export default function App() {
             onSubmit={report}
           >
             <label>
-              Что выполнено
+              <span className="label-row">
+                Что выполнено <VoiceButton target="report-works" lang={voiceLang} />
+              </span>
               <textarea
+                id="report-works"
                 name="works"
                 rows={4}
                 defaultValue={reportDraft.works || ''}
@@ -2944,7 +2971,12 @@ export default function App() {
             ))}
             <label>
               Комментарий
-              <textarea name="comment" defaultValue={reportDraft.comment || ''} rows={2} />
+              <textarea
+                id="report-comment"
+                name="comment"
+                defaultValue={reportDraft.comment || ''}
+                rows={2}
+              />
             </label>
             <p className="small muted">
               Фото «после» обязательно для внепланового ремонта. Неполный отчёт будет возвращён на доработку.

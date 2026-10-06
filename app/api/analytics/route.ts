@@ -80,14 +80,12 @@ async function aiNarrative(result: any, filters: any, users: any[]) {
       detail: mask(i.detail),
       recommendation: i.recommendation,
     })),
-    topEquipment: result.equipment
-      .slice(0, 5)
-      .map((e: any) => ({
-        name: e.name,
-        unplanned: e.unplanned,
-        downtimeHours: e.downtimeHours,
-        topCode: e.topCode,
-      })),
+    topEquipment: result.equipment.slice(0, 5).map((e: any) => ({
+      name: e.name,
+      unplanned: e.unplanned,
+      downtimeHours: e.downtimeHours,
+      topCode: e.topCode,
+    })),
     ratings: result.ratings.workers
       .slice(0, 15)
       .map((w: any) => ({ who: mask(w.name), score: w.score, onTime: w.onTime, returns: w.returns })),

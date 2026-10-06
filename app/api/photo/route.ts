@@ -3,11 +3,12 @@ import { actor, bucket, db, sameOrigin, list, save } from '../../../lib/server';
 export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
+    // Тело читается до проверок: недочитанный запрос перезапускает локальный workerd.
+    const data = await req.formData();
     sameOrigin(req);
     const u = await actor(req);
     if (!u || !['master', 'worker'].includes(u.role))
       return Response.json({ error: 'Нет доступа' }, { status: 403 });
-    const data = await req.formData();
     const file = data.get('file') as File;
     if (!file || file.size > 6 * 1024 * 1024)
       return Response.json({ error: 'Фото должно быть меньше 6 МБ' }, { status: 400 });

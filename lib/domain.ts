@@ -37,7 +37,7 @@ const materialsByCategory: Record<string, RegExp> = {
 const generalMaterials = /ветош|очистител|обезжирив/i;
 
 /** Немедленная проверка отчёта по правилам (без внешней модели). Формирует и отчёт исполнителю. */
-export function evaluate(o: any, report: any, duplicate = false) {
+export function evaluate(o: any, report: any, duplicate = false, photoIssues: string[] = []) {
   const issues: string[] = [];
   const strengths: string[] = [];
   const improvements: string[] = [];
@@ -58,6 +58,7 @@ export function evaluate(o: any, report: any, duplicate = false) {
   } else if (report.photos?.length) strengths.push('Приложено фото после выполнения.');
   if (duplicate)
     issues.push('Обнаружена повторная загрузка ранее использованного изображения. Нужна проверка мастером.');
+  issues.push(...photoIssues);
   const excess = (report.materials || []).filter((m: any) => m.qty > m.norm);
   if (excess.length) {
     issues.push(

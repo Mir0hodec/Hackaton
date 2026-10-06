@@ -1,5 +1,5 @@
 import { namespace, ownerKey } from '../../../lib/context';
-import { actor, bucket, db, sameOrigin, list } from '../../../lib/server';
+import { actor, bucket, db, sameOrigin, list, save } from '../../../lib/server';
 export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
@@ -31,6 +31,17 @@ export async function POST(req: Request) {
       .prepare('INSERT INTO photos(id,user_id,hash,created,type) VALUES(?,?,?,?,?)')
       .bind(id, ownerKey(u.id), hash, Date.now(), mime)
       .run();
+    // Метаданные с телефона: перцептивный хэш и дата съёмки из EXIF (для проверки «свежести» фото).
+    const dhash = String(data.get('dhash') || '');
+    const takenAt = String(data.get('takenAt') || '');
+    if (/^[0-9a-f]{16}$/.test(dhash) || Number.isFinite(Date.parse(takenAt)))
+      await save('photometa', {
+        id,
+        user: u.id,
+        dhash: /^[0-9a-f]{16}$/.test(dhash) ? dhash : null,
+        takenAt: Number.isFinite(Date.parse(takenAt)) ? new Date(takenAt).toISOString() : null,
+        created: new Date().toISOString(),
+      });
     return Response.json({ id });
   } catch (e) {
     console.error(e);

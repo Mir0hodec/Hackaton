@@ -26,6 +26,7 @@ import {
   nextNumber,
 } from '../../../lib/server';
 import { evaluate, closed, formatServerTime } from '../../../lib/domain';
+import { hamming } from '../../../lib/photo-meta';
 export const dynamic = 'force-dynamic';
 function json(data: any, status = 200, headers: any = {}) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
@@ -476,8 +477,9 @@ export async function POST(req: Request) {
         )
       )
         duplicate = true;
+      const photoIssues = await photoFindings(o, o.report.photos);
       stopWorkClock(o, now);
-      o.check = evaluate(o, o.report, duplicate);
+      o.check = evaluate(o, o.report, duplicate, photoIssues);
       o.check.minutes = activeMinutes(o);
       o.check = markAiPending(o.check);
       o.finished = now;
@@ -614,6 +616,31 @@ export async function POST(req: Request) {
     console.error(e);
     return json({ error: e.message || 'Не удалось сохранить изменения' }, 400);
   }
+}
+/** Сравнение фото «после» с фото «до» и прежними снимками (dHash) и проверка даты съёмки (EXIF). */
+async function photoFindings(o: any, ids: string[]) {
+  const issues: string[] = [];
+  if (!ids.length) return issues;
+  const meta = await list('photometa');
+  const byId = new Map(meta.map((m: any) => [m.id, m]));
+  for (const id of ids) {
+    const m: any = byId.get(id);
+    if (!m) continue;
+    if (m.dhash) {
+      const similar = meta.filter((x: any) => x.id !== id && x.dhash && hamming(x.dhash, m.dhash) <= 6);
+      if (similar.some((x: any) => o.photos?.includes(x.id)))
+        issues.push(
+          'Фото «после» практически совпадает с фото «до»: видимых изменений нет. Нужна проверка мастером.',
+        );
+      else if (similar.some((x: any) => !ids.includes(x.id)))
+        issues.push('Фото «после» очень похоже на ранее загруженный снимок. Нужна проверка мастером.');
+    }
+    if (m.takenAt && Date.parse(m.takenAt) < Date.parse(o.created) - 10 * 60000)
+      issues.push(
+        `По данным EXIF снимок сделан ${formatServerTime(m.takenAt)}, раньше выдачи наряда. Нужна проверка мастером.`,
+      );
+  }
+  return [...new Set(issues)];
 }
 async function validatePhotos(ids: string[], user: string) {
   for (const id of ids) {

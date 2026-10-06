@@ -39,6 +39,7 @@ import { createXlsx } from '../lib/xlsx';
 import { activeMinutes, equipmentDowntime } from '../lib/timing';
 import { putLocal, readLocal, removeLocal } from '../lib/offline';
 import { shiftOf } from '../lib/shift';
+import { readExifDate, dHash } from '../lib/photo-meta';
 import { OrderReport } from '../components/order-report';
 import { AssigneeHint, CodeHint, useRecommendation } from '../components/assist';
 import { UrgentBanner, playAlarm, playChime, unlockAudio } from '../components/urgent';
@@ -372,6 +373,8 @@ export default function App() {
       }
       const form = new FormData();
       form.append('file', asset.blob, 'photo.jpg');
+      if (asset.dhash) form.append('dhash', asset.dhash);
+      if (asset.takenAt) form.append('takenAt', asset.takenAt);
       const r = await fetch(demo ? '/api/demo-photo' : '/api/photo', { method: 'POST', body: form });
       const result: any = await r.json();
       if (!r.ok) throw Object.assign(new Error(result.error), { server: true });
@@ -754,7 +757,9 @@ export default function App() {
     try {
       const ids: string[] = [];
       for (const f of Array.from(files).slice(0, 5 - photos.length)) {
+        const takenAt = await readExifDate(f);
         const bitmap = await createImageBitmap(f);
+        const hash = dHash(bitmap);
         const c = document.createElement('canvas');
         const factor = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
         c.width = bitmap.width * factor;
@@ -770,6 +775,8 @@ export default function App() {
           userId: user.id,
           environmentId: data.environmentId,
           createdAt: Date.now(),
+          takenAt,
+          dhash: hash,
         });
         ids.push(localId);
       }

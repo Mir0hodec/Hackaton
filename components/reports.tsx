@@ -14,6 +14,7 @@ import {
   Timer,
   RefreshCw,
 } from 'lucide-react';
+import { reportSheets } from '../lib/report-export';
 import { createXlsxBook } from '../lib/xlsx';
 import { shiftOf } from '../lib/shift';
 import { t } from '../lib/i18n';
@@ -35,8 +36,8 @@ export function periodRange(period: string, fromDate?: string, toDate?: string) 
     return { from: s.start, to: s.end, label: s.name };
   }
   if (period === 'custom' && fromDate) {
-    const from = Date.parse(fromDate + 'T00:00:00');
-    const to = toDate ? Date.parse(toDate + 'T00:00:00') + DAY : now + 60000;
+    const from = Date.parse(fromDate + 'T00:00:00+05:00');
+    const to = toDate ? Date.parse(toDate + 'T00:00:00+05:00') + DAY : now + 60000;
     return { from, to, label: `${fromDate} — ${toDate || 'сегодня'}` };
   }
   const days = { day: 1, week: 7, month: 30, quarter: 91 }[period as 'day'] || 30;
@@ -127,7 +128,17 @@ function Legend({ items }: { items: [string, string][] }) {
   );
 }
 
-export function InsightList({ insights, onPick }: { insights: any[]; onPick?: (i: any) => void }) {
+export function InsightList({
+  insights,
+  onPick,
+  evidenceOrders = [],
+  onOpenOrder,
+}: {
+  insights: any[];
+  onPick?: (i: any) => void;
+  evidenceOrders?: any[];
+  onOpenOrder?: (id: string) => void;
+}) {
   if (!insights?.length)
     return (
       <p className="muted">
@@ -147,6 +158,18 @@ export function InsightList({ insights, onPick }: { insights: any[]; onPick?: (i
           <p className="recommendation">
             <b>Рекомендация:</b> {i.recommendation}
           </p>
+          {!!i.orderIds?.length && onOpenOrder && (
+            <details className="insight-evidence">
+              <summary>Наряды в основе вывода ({i.orderIds.length})</summary>
+              <div className="evidence-links">
+                {i.orderIds.map((id: string) => (
+                  <button key={id} className="text-button" onClick={() => onOpenOrder(id)}>
+                    №{evidenceOrders.find((o) => o.id === id)?.number || id.slice(0, 8)}
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
           {onPick && i.equipment && (
             <button className="text-button" onClick={() => onPick(i)}>
               Показать отчёт по оборудованию
@@ -158,7 +181,17 @@ export function InsightList({ insights, onPick }: { insights: any[]; onPick?: (i
   );
 }
 
-export function ReportsPage({ api, data, workers }: { api: string; data: any; workers: any[] }) {
+export function ReportsPage({
+  api,
+  data,
+  workers,
+  onOpenOrder,
+}: {
+  api: string;
+  data: any;
+  workers: any[];
+  onOpenOrder?: (id: string) => void;
+}) {
   const [period, setPeriod] = useState('month');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -167,6 +200,8 @@ export function ReportsPage({ api, data, workers }: { api: string; data: any; wo
   const [worker, setWorker] = useState('');
   const [brigade, setBrigade] = useState('');
   const [wantAi, setWantAi] = useState(false);
+  const [materialGroup, setMaterialGroup] = useState('materials');
+  const [materialLimit, setMaterialLimit] = useState(24);
   const [openRating, setOpenRating] = useState<string | null>(null);
   const range = useMemo(() => periodRange(period, fromDate, toDate), [period, fromDate, toDate]);
   const {
@@ -191,156 +226,7 @@ export function ReportsPage({ api, data, workers }: { api: string; data: any; wo
   function exportExcel() {
     if (!a) return;
     const s = a.summary;
-    const book = createXlsxBook([
-      {
-        name: 'Сводка',
-        rows: [
-          ['Показатель', 'Значение'],
-          ['Период', range.label],
-          ['Выдано нарядов', s.issued],
-          ['Закрыто', s.closed],
-          ['В работе', s.active],
-          ['Просрочено', s.overdue],
-          ['Отклонено', s.rejected],
-          ['Плановых / внеплановых', `${s.planned} / ${s.unplanned}`],
-          ['Среднее время реакции, мин', s.avgReactionMin],
-          ['Среднее время выполнения, мин', s.avgCompletionMin],
-          ['Закрыто в срок, %', Math.round(s.onTimeShare * 100)],
-          ['Простой оборудования, ч', s.downtimeHours],
-          ['Средняя оценка', s.avgScore ?? ''],
-          ['Сводка', a.ai?.summary || a.narrative],
-        ],
-      },
-      {
-        name: 'Рейтинг исполнителей',
-        rows: [
-          [
-            'Место',
-            'Исполнитель',
-            'Специальность',
-            'Бригада',
-            'Балл',
-            'Нарядов',
-            'Качество',
-            'В срок, %',
-            'Доработки, %',
-            'Повторы',
-            'Отказы без причины',
-            'Пояснение',
-          ],
-          ...a.ratings.workers.map((w: any, i: number) => [
-            i + 1,
-            w.name,
-            w.spec,
-            w.brigade,
-            w.score,
-            w.count,
-            Math.round(w.quality * 10) / 10,
-            Math.round(w.onTime * 100),
-            Math.round(w.returns * 100),
-            w.repeatCount,
-            w.penalty,
-            w.explanation,
-          ]),
-        ],
-      },
-      {
-        name: 'Рейтинг бригад',
-        rows: [
-          ['Бригада', 'Балл', 'Нарядов', 'Качество', 'В срок, %', 'Доработки, %'],
-          ...a.ratings.brigades.map((b: any) => [
-            b.brigade,
-            b.score,
-            b.count,
-            Math.round(b.quality * 10) / 10,
-            Math.round(b.onTime * 100),
-            Math.round(b.returns * 100),
-          ]),
-        ],
-      },
-      {
-        name: 'Загрузка',
-        rows: [
-          ['Исполнитель', 'Специальность', 'Бригада', 'Выдано', 'Закрыто', 'В работе', 'Активное время, ч'],
-          ...a.workload.map((w: any) => [
-            w.name,
-            w.spec,
-            w.brigade,
-            w.issued,
-            w.closed,
-            w.active,
-            w.activeHours,
-          ]),
-        ],
-      },
-      {
-        name: 'Оборудование и простои',
-        rows: [
-          [
-            'Оборудование',
-            'Нарядов',
-            'Внеплановых',
-            'Плановых',
-            'Простой всего, ч',
-            'Внеплановый, ч',
-            'Плановый, ч',
-            'Частый шифр',
-            'Число',
-          ],
-          ...a.equipment.map((e: any) => [
-            e.name,
-            e.orders,
-            e.unplanned,
-            e.planned,
-            e.downtimeHours,
-            e.downtimeUnplannedHours,
-            e.downtimePlannedHours,
-            e.topCode || '',
-            e.topCodeCount,
-          ]),
-        ],
-      },
-      {
-        name: 'Материалы',
-        rows: [
-          ['Материал', 'Ед.', 'Ориентир на наряд', 'Списано', 'Нарядов', 'Выше ориентира'],
-          ...a.materials.materials.map((m: any) => [m.name, m.unit, m.norm, m.qty, m.orders, m.over]),
-        ],
-      },
-      {
-        name: 'Отклонения расхода',
-        rows: [
-          [
-            'Наряд',
-            'Материал',
-            'Количество',
-            'Ед.',
-            'Ориентир',
-            'Превышение, раз',
-            'Оборудование',
-            'Исполнитель',
-          ],
-          ...a.materials.deviations.map((d: any) => [
-            d.number,
-            d.material,
-            d.qty,
-            d.unit,
-            d.norm,
-            d.ratio,
-            d.equipment,
-            d.worker,
-          ]),
-        ],
-      },
-      {
-        name: 'Аномалии и выводы',
-        rows: [
-          ['Важность', 'Вывод', 'Подробности', 'Рекомендация'],
-          ...a.insights.map((i: any) => [severityName[i.severity], i.title, i.detail, i.recommendation]),
-          ...(a.ai?.recommendations || []).map((r: string) => ['ИИ', 'Рекомендация ИИ', '', r]),
-        ],
-      },
-    ]);
+    const book = createXlsxBook(reportSheets(a, range.label));
     const url = URL.createObjectURL(book);
     const link = document.createElement('a');
     link.href = url;
@@ -411,32 +297,41 @@ export function ReportsPage({ api, data, workers }: { api: string; data: any; wo
             </option>
           ))}
         </select>
-        <select aria-label="Оборудование" value={equipment} onChange={(e) => setEquipment(e.target.value)}>
-          <option value="">Всё оборудование</option>
-          {data.equipment
-            .filter((x: any) => !area || x.area === area)
-            .map((x: any) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-              </option>
-            ))}
-        </select>
-        <select aria-label="Исполнитель" value={worker} onChange={(e) => setWorker(e.target.value)}>
-          <option value="">Все исполнители</option>
-          {workers.map((w: any) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Бригада" value={brigade} onChange={(e) => setBrigade(e.target.value)}>
-          <option value="">Все бригады</option>
-          {brigades.map((b) => (
-            <option key={b} value={b}>
-              Бригада {b}
-            </option>
-          ))}
-        </select>
+        <details className="advanced-filters">
+          <summary>Дополнительные фильтры{equipment || worker || brigade ? ' · применены' : ''}</summary>
+          <div className="filters">
+            <select
+              aria-label="Оборудование"
+              value={equipment}
+              onChange={(e) => setEquipment(e.target.value)}
+            >
+              <option value="">Всё оборудование</option>
+              {data.equipment
+                .filter((x: any) => !area || x.area === area)
+                .map((x: any) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+            </select>
+            <select aria-label="Исполнитель" value={worker} onChange={(e) => setWorker(e.target.value)}>
+              <option value="">Все исполнители</option>
+              {workers.map((w: any) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+            <select aria-label="Бригада" value={brigade} onChange={(e) => setBrigade(e.target.value)}>
+              <option value="">Все бригады</option>
+              {brigades.map((b) => (
+                <option key={b} value={b}>
+                  Бригада {b}
+                </option>
+              ))}
+            </select>
+          </div>
+        </details>
       </div>
       {error && (
         <div className="error" role="alert">
@@ -536,6 +431,8 @@ export function ReportsPage({ api, data, workers }: { api: string; data: any; wo
             </p>
             <InsightList
               insights={a.insights}
+              evidenceOrders={a.evidenceOrders}
+              onOpenOrder={onOpenOrder}
               onPick={(i) => {
                 setEquipment(i.equipment);
                 setArea('');
@@ -593,29 +490,31 @@ export function ReportsPage({ api, data, workers }: { api: string; data: any; wo
                 </div>
               ))}
               <h2 className="spaced">Загрузка людей</h2>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Исполнитель</th>
-                    <th>Выдано</th>
-                    <th>Закрыто</th>
-                    <th>Акт. время</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {a.workload.slice(0, 15).map((w: any) => (
-                    <tr key={w.id}>
-                      <td>
-                        {w.name}
-                        <small className="muted"> · {w.spec}</small>
-                      </td>
-                      <td>{w.issued}</td>
-                      <td>{w.closed}</td>
-                      <td>{w.activeHours} ч</td>
+              <div className="table-scroll" role="region" aria-label="Таблица отчёта" tabIndex={0}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Исполнитель</th>
+                      <th>Выдано</th>
+                      <th>Закрыто</th>
+                      <th>Акт. время</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {a.workload.slice(0, 15).map((w: any) => (
+                      <tr key={w.id}>
+                        <td>
+                          {w.name}
+                          <small className="muted"> · {w.spec}</small>
+                        </td>
+                        <td>{w.issued}</td>
+                        <td>{w.closed}</td>
+                        <td>{w.activeHours} ч</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </section>
           </div>
 
@@ -687,28 +586,62 @@ export function ReportsPage({ api, data, workers }: { api: string; data: any; wo
           <div className="detail-grid">
             <section className="panel">
               <h2>Списанные материалы</h2>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Материал</th>
-                    <th>Списано</th>
-                    <th>Нарядов</th>
-                    <th>Выше нормы</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {a.materials.materials.slice(0, 12).map((m: any) => (
-                    <tr key={m.id} className={m.over ? 'warn' : ''}>
-                      <td>{m.name}</td>
-                      <td>
-                        {Math.round(m.qty * 10) / 10} {m.unit}
-                      </td>
-                      <td>{m.orders}</td>
-                      <td>{m.over || '—'}</td>
+              <label>
+                Срез расхода
+                <select
+                  value={materialGroup}
+                  onChange={(e) => {
+                    setMaterialGroup(e.target.value);
+                    setMaterialLimit(24);
+                  }}
+                >
+                  <option value="materials">Все материалы</option>
+                  <option value="byArea">По участкам</option>
+                  <option value="byEquipment">По оборудованию</option>
+                  <option value="byWorker">По исполнителям</option>
+                </select>
+              </label>
+              <div className="table-scroll" role="region" aria-label="Таблица отчёта" tabIndex={0}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Материал</th>
+                      <th>Списано</th>
+                      <th>Нарядов</th>
+                      <th>Выше нормы</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {(a.materials[materialGroup] || []).slice(0, materialLimit).map((m: any) => (
+                      <tr key={m.id} className={m.over ? 'warn' : ''}>
+                        <td>
+                          {m.groupName && (
+                            <small className="muted">
+                              {m.groupName}
+                              <br />
+                            </small>
+                          )}
+                          {m.name}
+                        </td>
+                        <td>
+                          {m.qty} {m.unit}
+                        </td>
+                        <td>{m.orders}</td>
+                        <td>{m.over || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted small">
+                Показано {Math.min(materialLimit, (a.materials[materialGroup] || []).length)} из{' '}
+                {(a.materials[materialGroup] || []).length} позиций. Все срезы включены в Excel.
+              </p>
+              {(a.materials[materialGroup] || []).length > materialLimit && (
+                <button type="button" onClick={() => setMaterialLimit((n) => n + 24)}>
+                  Показать ещё 24
+                </button>
+              )}
             </section>
             <section className="panel">
               <div className="section-title">

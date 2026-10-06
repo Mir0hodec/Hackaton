@@ -79,6 +79,9 @@ export type Recommendation = {
   spec: string;
   score: number;
   available: string;
+  free: boolean;
+  matching: boolean;
+  eligible: boolean;
   reasons: string[];
 };
 
@@ -164,8 +167,26 @@ export function recommendWorkers(input: {
         reasons.push(`рейтинг ${r.score}/100`);
       }
       score += Math.min(5, Number(w.grade) || 0);
-      return { id: w.id, name: w.name, spec: w.spec || '', score: Math.round(score), available, reasons };
+      const free = !working && !personal && jobs.length === 0;
+      const matching = !specialty || sameSpecialty(w, specialty);
+      return {
+        id: w.id,
+        name: w.name,
+        spec: w.spec || '',
+        score: Math.round(score),
+        available,
+        reasons,
+        free,
+        matching,
+        eligible: free && matching,
+      };
     })
-    .sort((a, b) => b.score - a.score);
+    .sort(
+      (a, b) =>
+        Number(b.eligible) - Number(a.eligible) ||
+        Number(b.free) - Number(a.free) ||
+        Number(b.matching) - Number(a.matching) ||
+        b.score - a.score,
+    );
   return { code, specialty, ranked };
 }

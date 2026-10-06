@@ -176,3 +176,75 @@ export async function nextNumber() {
     .first();
   return Number(result.data);
 }
+
+// The status check and write share one SQLite statement so concurrent devices
+// cannot start two orders involving the same employee.
+export async function saveWorkingOrder(obj: any, version: number) {
+  const id = namespace() + 'orders:' + obj.id,
+    kind = namespace() + 'orders';
+  const people = JSON.stringify([...new Set([obj.worker, ...(obj.members || [])])]);
+  const result = await db()
+    .prepare(
+      `UPDATE records SET data=?,version=version+1
+ WHERE id=? AND version=? AND NOT EXISTS (
+  SELECT 1 FROM records AS busy WHERE busy.kind=? AND busy.id<>?
+  AND json_extract(busy.data,'$.status')='working' AND (
+   json_extract(busy.data,'$.worker') IN (SELECT value FROM json_each(?))
+   OR EXISTS (SELECT 1 FROM json_each(busy.data,'$.members') AS member
+    WHERE member.value IN (SELECT value FROM json_each(?)))
+  )
+ ) AND NOT EXISTS (SELECT 1 FROM records AS log, json_each(log.data,'$.entries') AS entry
+ WHERE log.kind=? AND json_extract(entry.value,'$.status')='active'
+ AND json_extract(entry.value,'$.worker') IN (SELECT value FROM json_each(?))
+ AND COALESCE(json_extract(entry.value,'$.order'),'')<>?)
+ `,
+    )
+    .bind(
+      JSON.stringify(obj),
+      id,
+      version,
+      kind,
+      id,
+      people,
+      people,
+      namespace() + 'worklogs',
+      people,
+      obj.id,
+    )
+    .run();
+  if (!result.meta.changes)
+    throw new Error(
+      'Исполнитель уже занят или наряд изменён на другом устройстве. Обновите данные и повторите действие.',
+    );
+}
+
+export async function saveStartingWorklog(record: any, card: any) {
+  const id = namespace() + 'worklogs:' + record.id;
+  await db()
+    .prepare('INSERT OR IGNORE INTO records(id,kind,data,version) VALUES(?,?,?,0)')
+    .bind(id, namespace() + 'worklogs', JSON.stringify({ id: record.id, entries: [] }))
+    .run();
+  const result = await db()
+    .prepare(
+      `UPDATE records SET data=?,version=version+1
+ WHERE id=? AND version=? AND NOT EXISTS (SELECT 1 FROM records AS job
+ WHERE job.kind=? AND json_extract(job.data,'$.status')='working'
+ AND COALESCE(json_extract(job.data,'$.id'),'')<>? AND (
+ json_extract(job.data,'$.worker')=? OR EXISTS (SELECT 1 FROM json_each(job.data,'$.members') WHERE value=?)
+ ))`,
+    )
+    .bind(
+      JSON.stringify(record),
+      id,
+      record.version ?? 0,
+      namespace() + 'orders',
+      card.order || '',
+      card.worker,
+      card.worker,
+    )
+    .run();
+  if (!result.meta.changes)
+    throw new Error(
+      'У сотрудника уже есть активная работа или данные изменились. Свяжите карточку с текущим нарядом либо завершите другую работу.',
+    );
+}

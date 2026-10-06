@@ -1,0 +1,45 @@
+name: NaryadAI quality
+on:
+  pull_request:
+  push:
+    branches: [main, codex/merge-naryadai-quality]
+permissions:
+  contents: read
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm run install:ci
+      - run: npm run typecheck
+      - run: npm run test:quality
+      - run: npm run build
+      - name: Isolated local API regression
+        shell: bash
+        run: |
+          printf 'DEMO_ONLY=true\nWORKSPACE_MODE=false\n' > .dev.vars
+          npm run db:local
+          npm run start:local > /tmp/naryadai-server.log 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import time, urllib.request
+          op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          for attempt in range(60):
+              try:
+                  if op.open('http://127.0.0.1:4173/api/service', timeout=2).status == 200:
+                      break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise SystemExit('Local preview did not become ready')
+          PY
+          npm run test:quality-api
+      - name: Save server log on failure
+        if: failure()
+        run: cat /tmp/naryadai-server.log 2>/dev/null || true

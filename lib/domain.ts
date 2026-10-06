@@ -88,6 +88,73 @@ export function evaluate(o: any, report: any, duplicate = false, photoIssues: st
   } else if (norm && mins <= norm) strengths.push(`Уложились в норматив: ${mins} из ${norm} мин.`);
   if (o.due && Date.now() > Date.parse(o.due))
     improvements.push('Наряд закрыт после срока — сообщайте мастеру о задержке заранее.');
+  const checks = [
+    {
+      id: 'works',
+      label: 'Описание работ',
+      status: works.length >= 12 ? 'pass' : 'fail',
+      detail:
+        works.length >= 12
+          ? 'Выполненные работы описаны.'
+          : 'Недостаточно подробно описаны выполненные работы.',
+    },
+    {
+      id: 'code',
+      label: 'Шифр неисправности',
+      status: report.code ? 'pass' : 'fail',
+      detail: report.code ? `Указан шифр ${report.code}.` : 'Не указан шифр неисправности.',
+    },
+    {
+      id: 'photos',
+      label: 'Фото после ремонта',
+      status: o.type === 'planned' || report.photos?.length ? 'pass' : 'fail',
+      detail: report.photos?.length
+        ? `Приложено ${report.photos.length} фото. Наличие файла не подтверждает качество ремонта.`
+        : o.type === 'planned'
+          ? 'Для планового осмотра фото необязательно.'
+          : 'Для внепланового ремонта требуется фото после выполнения.',
+    },
+    {
+      id: 'materials',
+      label: 'Расход материалов',
+      status: excess.length || odd.length ? 'review' : 'pass',
+      detail:
+        excess.length || odd.length
+          ? issues.filter((i) => /расход|материал/i.test(i)).join(' ')
+          : 'Списанные количества не превышают справочные ориентиры; необходимость расхода проверяет мастер.',
+    },
+    {
+      id: 'time',
+      label: 'Время и норматив',
+      status: mins < 1 || (norm && mins > norm * 1.5) ? 'review' : 'pass',
+      detail: `Активное время ${mins} мин${norm ? `, норматив ${norm} мин (${Math.round((mins / norm) * 100)}%)` : ''}.`,
+    },
+    {
+      id: 'visual',
+      label: 'Визуальная проверка',
+      status: 'review',
+      detail:
+        'По правилам проверено наличие фото и метаданные. Содержание изображений проверяет мастер или подключённая модель.',
+    },
+  ];
+  const subjects = [
+    { name: 'герметичность', re: /теч|масл|уплотн|гермет|проклад/i },
+    { name: 'электрика', re: /электр|кабел|изоляц|напряж|ламп|замыкан/i },
+    { name: 'подшипники и вибрация', re: /подшип|вибрац|гул|соос|баланс/i },
+    { name: 'крепления', re: /болт|креп|ослаб|затяж/i },
+  ];
+  const problem = subjects.filter((s) => s.re.test(o.title + ' ' + (o.description || '')));
+  const work = subjects.filter((s) => s.re.test(works));
+  if (problem.length && work.length && !problem.some((p) => work.some((w) => w.name === p.name))) {
+    const detail = `В проблеме: ${problem.map((x) => x.name).join(', ')}; в отчёте: ${work.map((x) => x.name).join(', ')}. Уточните, как работы устраняют исходную проблему. Это сигнал по ключевым словам, не смысловой анализ.`;
+    checks.push({
+      id: 'correspondence',
+      label: 'Сопоставление по ключевым словам',
+      status: 'review',
+      detail,
+    });
+    issues.push(detail);
+  }
   const verdict = issues.some((x) => /требуется|Не указан|Недостаточно/.test(x))
     ? 'rework'
     : issues.length
@@ -99,6 +166,8 @@ export function evaluate(o: any, report: any, duplicate = false, photoIssues: st
   );
   return {
     score,
+    checks,
+    needsMasterCheck: true,
     issues,
     verdict,
     minutes: mins,
@@ -162,7 +231,10 @@ export function brigadeRating(orders: any[], users: any[], brigade: number) {
   const members = new Set(users.filter((u) => u.role === 'worker' && u.brigade === brigade).map((u) => u.id));
   return ratingBy(
     orders,
-    (o: any) => members.has(o.worker) || o.members?.some((m: string) => members.has(m)),
+    (o: any) =>
+      o.brigade
+        ? o.brigade === brigade
+        : members.has(o.worker) || o.members?.some((m: string) => members.has(m)),
     (w) => members.has(w),
   );
 }
@@ -180,6 +252,7 @@ function ratingBy(orders: any[], belongs: (o: any) => boolean, belongsWorker: (i
         next.id !== o.id &&
         next.equipment === o.equipment &&
         next.type === 'unplanned' &&
+        !['cancelled', 'rejected'].includes(next.status) &&
         !!o.report?.code &&
         next.report?.code === o.report?.code &&
         Date.parse(next.created) > Date.parse(o.closedAt || o.finished) &&

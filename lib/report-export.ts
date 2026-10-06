@@ -1,0 +1,170 @@
+const severityName: Record<string, string> = { high: 'Высокая', medium: 'Средняя', low: 'Низкая' };
+export function reportSheets(a: any, periodLabel: string) {
+  const s = a.summary;
+  return [
+    {
+      name: 'Сводка',
+      rows: [
+        ['Показатель', 'Значение'],
+        ['Период', periodLabel],
+        ['Выдано нарядов', s.issued],
+        ['Закрыто', s.closed],
+        ['В работе', s.active],
+        ['Просрочено', s.overdue],
+        ['Отклонено', s.rejected],
+        ['Плановых / внеплановых', `${s.planned} / ${s.unplanned}`],
+        ['Среднее время реакции, мин', s.avgReactionMin],
+        ['Среднее время выполнения, мин', s.avgCompletionMin],
+        ['Среднее активное время, мин', s.avgActiveMin],
+        ['Закрыто в срок, %', Math.round(s.onTimeShare * 100)],
+        ['Простой оборудования, ч', s.downtimeHours],
+        ['Средняя оценка', s.avgScore ?? ''],
+        ['Сводка', a.ai?.summary || a.narrative],
+      ],
+    },
+    {
+      name: 'Рейтинг исполнителей',
+      rows: [
+        [
+          'Место',
+          'Исполнитель',
+          'Специальность',
+          'Бригада',
+          'Балл',
+          'Нарядов',
+          'Качество',
+          'В срок, %',
+          'Доработки, %',
+          'Повторы',
+          'Отказы без причины',
+          'Пояснение',
+        ],
+        ...a.ratings.workers.map((w: any, i: number) => [
+          i + 1,
+          w.name,
+          w.spec,
+          w.brigade,
+          w.score,
+          w.count,
+          Math.round(w.quality * 10) / 10,
+          Math.round(w.onTime * 100),
+          Math.round(w.returns * 100),
+          w.repeatCount,
+          w.penalty,
+          w.explanation,
+        ]),
+      ],
+    },
+    {
+      name: 'Рейтинг бригад',
+      rows: [
+        ['Бригада', 'Балл', 'Нарядов', 'Качество', 'В срок, %', 'Доработки, %'],
+        ...a.ratings.brigades.map((b: any) => [
+          b.brigade,
+          b.score,
+          b.count,
+          Math.round(b.quality * 10) / 10,
+          Math.round(b.onTime * 100),
+          Math.round(b.returns * 100),
+        ]),
+      ],
+    },
+    {
+      name: 'Загрузка',
+      rows: [
+        ['Исполнитель', 'Специальность', 'Бригада', 'Выдано', 'Закрыто', 'В работе', 'Активное время, ч'],
+        ...a.workload.map((w: any) => [
+          w.name,
+          w.spec,
+          w.brigade,
+          w.issued,
+          w.closed,
+          w.active,
+          w.activeHours,
+        ]),
+      ],
+    },
+    {
+      name: 'Оборудование и простои',
+      rows: [
+        [
+          'Оборудование',
+          'Нарядов',
+          'Внеплановых',
+          'Плановых',
+          'Простой всего, ч',
+          'Внеплановый, ч',
+          'Плановый, ч',
+          'Частый шифр',
+          'Число',
+        ],
+        ...a.equipment.map((e: any) => [
+          e.name,
+          e.orders,
+          e.unplanned,
+          e.planned,
+          e.downtimeHours,
+          e.downtimeUnplannedHours,
+          e.downtimePlannedHours,
+          e.topCode || '',
+          e.topCodeCount,
+        ]),
+      ],
+    },
+    {
+      name: 'Материалы',
+      rows: [
+        ['Материал', 'Ед.', 'Ориентир на наряд', 'Списано', 'Нарядов', 'Выше ориентира'],
+        ...a.materials.materials.map((m: any) => [m.name, m.unit, m.norm, m.qty, m.orders, m.over]),
+        [],
+        ['Срез', 'Группа', 'Материал', 'Ед.', 'Списано', 'Нарядов'],
+        ...[
+          ['byArea', 'Участок'],
+          ['byEquipment', 'Оборудование'],
+          ['byWorker', 'Исполнитель'],
+        ].flatMap(([key, label]) =>
+          (a.materials[key] || []).map((m: any) => [label, m.groupName, m.name, m.unit, m.qty, m.orders]),
+        ),
+      ],
+    },
+    {
+      name: 'Отклонения расхода',
+      rows: [
+        [
+          'Наряд',
+          'Материал',
+          'Количество',
+          'Ед.',
+          'Ориентир',
+          'Превышение, раз',
+          'Оборудование',
+          'Исполнитель',
+        ],
+        ...a.materials.deviations.map((d: any) => [
+          d.number,
+          d.material,
+          d.qty,
+          d.unit,
+          d.norm,
+          d.ratio,
+          d.equipment,
+          d.worker,
+        ]),
+      ],
+    },
+    {
+      name: 'Аномалии и выводы',
+      rows: [
+        ['Важность', 'Вывод', 'Подробности', 'Рекомендация', 'Наряды-источники'],
+        ...a.insights.map((i: any) => [
+          severityName[i.severity],
+          i.title,
+          i.detail,
+          i.recommendation,
+          (i.orderIds || []).join(', '),
+        ]),
+        ...(a.ai?.recommendations || []).map((r: string) => ['ИИ', 'Рекомендация ИИ', '', r]),
+      ],
+    },
+  ];
+}

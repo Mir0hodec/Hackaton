@@ -774,6 +774,7 @@ export default function App() {
     [createWorker, setCreateWorker] = useState(''),
     [createNorm, setCreateNorm] = useState('90'),
     [quickEmergency, setQuickEmergency] = useState(true),
+    [quickMinutes, setQuickMinutes] = useState(60),
     [quickPicked, setQuickPicked] = useState(false);
   const canRecommend = user?.role === 'master';
   const analyticsApi = demo ? '/api/demo-analytics' : '/api/analytics';
@@ -808,7 +809,7 @@ export default function App() {
     if (modal === 'edit' && order) setEditWorker(order.status === 'rejected' ? '' : order.worker);
   }, [modal]);
   useEffect(() => {
-    const best = editRanked?.ranked?.[0]?.id;
+    const best = editRanked?.ranked?.find((w) => w.eligible)?.id;
     if (best && !editWorker) setEditWorker(best);
   }, [editRec.result]);
   useEffect(() => {
@@ -820,15 +821,16 @@ export default function App() {
     if (modal === 'quick') {
       setQuickPicked(false);
       setQuickEmergency(true);
+      setQuickMinutes(60);
     }
   }, [modal]);
   useEffect(() => {
-    const best = createRec.result?.ranked?.[0]?.id;
+    const best = createRec.result?.ranked?.find((w) => w.eligible)?.id;
     if (best && !createWorker) setCreateWorker(best);
   }, [createRec.result]);
   useEffect(() => {
-    const best = quickRec.result?.ranked?.[0]?.id;
-    if (best && !quickPicked) setQuickWorker(best);
+    const best = quickRec.result?.ranked?.find((w) => w.eligible)?.id;
+    if (!quickPicked) setQuickWorker(best || '');
   }, [quickRec.result]);
   async function upload(files: FileList | null) {
     if (!files) return;
@@ -1515,11 +1517,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       setFormEq(data.equipment[0]?.id || '');
-                      setQuickWorker(
-                        workers.find((w: any) => w.onShift && available(w) === 'Свободен')?.id ||
-                          workers.find((w: any) => w.onShift)?.id ||
-                          '',
-                      );
+                      setQuickWorker('');
                       setPhotos([]);
                       setQuick(true);
                       setModal('quick');
@@ -1795,11 +1793,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       setFormEq(data.equipment[0]?.id || '');
-                      setQuickWorker(
-                        workers.find((w: any) => w.onShift && available(w) === 'Свободен')?.id ||
-                          workers.find((w: any) => w.onShift)?.id ||
-                          '',
-                      );
+                      setQuickWorker('');
                       setPhotos([]);
                       setQuick(true);
                       setModal('quick');
@@ -2015,7 +2009,7 @@ export default function App() {
               </div>
             </>
           ) : tab === 'reports' ? (
-            <ReportsPage api={analyticsApi} data={data} workers={workers} />
+            <ReportsPage api={analyticsApi} data={data} workers={workers} onOpenOrder={setSelected} />
           ) : tab === 'qr' ? (
             <>
               <button className="back no-print" onClick={() => setTab('catalog')}>
@@ -2543,10 +2537,10 @@ export default function App() {
                   priority: quickEmergency ? 'emergency' : 'high',
                   type: 'unplanned',
                   norm: quickRec.result?.code?.norm || 60,
-                  due: new Date(Date.now() + 3600000).toISOString(),
+                  due: new Date(Date.now() + quickMinutes * 60000).toISOString(),
                   photos,
                   suggestedCode: quickRec.result?.code?.id,
-                  recommendedWorker: quickRec.result?.ranked?.[0]?.id,
+                  recommendedWorker: quickRec.result?.ranked?.find((w) => w.eligible)?.id,
                 },
               });
               if (r) {
@@ -2555,10 +2549,7 @@ export default function App() {
               }
             }}
           >
-            <p className="muted">
-              Внеплановый ремонт · срок через 1 час. Исполнитель подобран автоматически — проверьте перед
-              выдачей.
-            </p>
+            <p className="muted">Внеплановый ремонт. Проверьте срок и исполнителя перед выдачей.</p>
             <button
               type="button"
               className={'emergency-toggle ' + (quickEmergency ? 'on' : '')}
@@ -2604,6 +2595,7 @@ export default function App() {
                   setQuickWorker(e.target.value);
                 }}
               >
+                <option value="">Выберите исполнителя</option>
                 {workers
                   .filter((w: any) => w.onShift && !w.disabled)
                   .map((w: any) => (
@@ -2622,6 +2614,16 @@ export default function App() {
                 setQuickWorker(id);
               }}
             />
+            <label>
+              Срок выполнения
+              <select value={quickMinutes} onChange={(e) => setQuickMinutes(Number(e.target.value))}>
+                {[2, 15, 60, 120].map((n) => (
+                  <option key={n} value={n}>
+                    Через {n} мин
+                  </option>
+                ))}
+              </select>
+            </label>
             <CodeHint result={quickRec.result} onApplyNorm={() => {}} />
             {photoInput}
             {error && (
@@ -2807,7 +2809,11 @@ export default function App() {
             }}
           >
             <input type="hidden" name="suggestedCode" value={createRec.result?.code?.id || ''} />
-            <input type="hidden" name="recommendedWorker" value={createRec.result?.ranked?.[0]?.id || ''} />
+            <input
+              type="hidden"
+              name="recommendedWorker"
+              value={createRec.result?.ranked?.find((w) => w.eligible)?.id || ''}
+            />
             <label>
               <span className="label-row">
                 Проблема / задание <VoiceButton target="create-title" lang={voiceLang} />

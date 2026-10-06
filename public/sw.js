@@ -1,4 +1,4 @@
-const CACHE = 'naryadai-team-v2';
+const CACHE = 'naryadai-team-v3';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) =>
   event.waitUntil(
@@ -8,7 +8,7 @@ self.addEventListener('activate', (event) =>
         .keys()
         .then((keys) =>
           Promise.all(
-            keys.filter((k) => k.startsWith('naryadai-shell-') && k !== CACHE).map((k) => caches.delete(k)),
+            keys.filter((k) => k.startsWith('naryadai-') && k !== CACHE).map((k) => caches.delete(k)),
           ),
         ),
     ]),
@@ -50,22 +50,50 @@ self.addEventListener('fetch', (event) => {
 });
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const order = event.notification.data?.order;
+  const url = order ? '/?order=' + encodeURIComponent(order) : '/';
   event.waitUntil(
-    self.clients
-      .matchAll({ type: 'window' })
-      .then((clients) => (clients.length ? clients[0].focus() : self.clients.openWindow('/'))),
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      const client = clients[0];
+      if (!client) return self.clients.openWindow(url);
+      if (order) client.postMessage({ type: 'open-order', order });
+      return client.focus();
+    }),
   );
 });
 
+// Push приходит пустым: персональные и производственные данные не передаются push-службе.
+// Текст уведомления service worker получает с нашего сервера по сессии пользователя.
+const fallback = () =>
+  self.registration.showNotification('НарядAI · обновление смены', {
+    body: 'Новый наряд или изменение статуса. Откройте приложение, чтобы посмотреть подробности.',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: 'naryadai-update',
+    renotify: true,
+    data: { url: '/' },
+  });
+
 self.addEventListener('push', (event) => {
   event.waitUntil(
-    self.registration.showNotification('НарядAI · обновление смены', {
-      body: 'Новый наряд или изменение статуса. Откройте приложение, чтобы посмотреть подробности.',
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      tag: 'naryadai-update',
-      renotify: true,
-      data: { url: '/' },
-    }),
+    fetch('/api/service?view=notifications', { credentials: 'same-origin', cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then(async ({ items }) => {
+        const fresh = (items || []).filter((a) => Date.now() - Date.parse(a.created) < 5 * 60000).slice(0, 3);
+        if (!fresh.length) return fallback();
+        for (const a of fresh.reverse()) {
+          await self.registration.showNotification((a.emergency ? '🔴 ' : '') + a.title, {
+            body: a.text,
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+            tag: a.id,
+            requireInteraction: !!a.emergency,
+            vibrate: a.emergency ? [400, 150, 400, 150, 800] : [200],
+            silent: false,
+            data: { order: a.order || null },
+          });
+        }
+      })
+      .catch(fallback),
   );
 });

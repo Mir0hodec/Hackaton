@@ -2014,3 +2014,227 @@ button:active:not(:disabled) {
   margin-top: 1rem;
   padding-top: 1rem;
 }
+
+/* ===== НарядAI v0.5: статусы исполнителей, ИИ-подсказки, аварийные предупреждения ===== */
+:root,
+:root[data-theme='light'] {
+  --amber: #8a5a00;
+  --amberbg: #fff4d6;
+  --blue: #0b4fa8;
+  --bluebg: #e3eeff;
+  --grey: #5e6872;
+  --greybg: #eef0f2;
+}
+:root[data-theme='dark'] {
+  --amber: #ffd27a;
+  --amberbg: #3a2f14;
+  --blue: #9cc4ff;
+  --bluebg: #1b2b44;
+  --grey: #b1b9c0;
+  --greybg: #2a2f33;
+}
+.availability {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: fit-content;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-weight: 650;
+  color: var(--blue);
+  background: var(--bluebg);
+}
+.availability::before {
+  content: '';
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.availability.free {
+  color: var(--green);
+  background: var(--greenbg);
+}
+.availability.busy {
+  color: var(--amber);
+  background: var(--amberbg);
+}
+.availability.queue {
+  color: var(--blue);
+  background: var(--bluebg);
+}
+.availability.off {
+  color: var(--grey);
+  background: var(--greybg);
+}
+.status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0.8rem;
+}
+.ai-hint {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  padding: 0.75rem;
+  margin: 0.5rem 0 0.9rem;
+  display: grid;
+  gap: 0.5rem;
+  background: var(--raised);
+}
+.ai-hint-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.ai-candidate {
+  display: grid;
+  gap: 0.2rem;
+  text-align: left;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.ai-candidate small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+.ai-candidate.selected {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.ai-candidate.alt {
+  min-height: 48px;
+}
+.code-hint {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.code-hint .text-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+.emergency-toggle {
+  width: 100%;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 750;
+  font-size: 1.05rem;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  margin-bottom: 0.9rem;
+}
+.emergency-toggle.on {
+  border-color: var(--red);
+  background: var(--redbg);
+  color: var(--red);
+}
+.urgent-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, #a51f23 55%, transparent);
+  animation: urgent-pulse 1.4s ease-in-out infinite;
+}
+@keyframes urgent-pulse {
+  50% {
+    background: color-mix(in srgb, #a51f23 35%, transparent);
+  }
+}
+.urgent-banner {
+  width: min(520px, 100%);
+  background: var(--surface);
+  color: var(--text);
+  border: 4px solid var(--red);
+  border-radius: 18px;
+  padding: 1.5rem;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+.urgent-banner > svg {
+  color: var(--red);
+}
+.urgent-banner h2 {
+  color: var(--red);
+  margin: 0.5rem 0;
+  font-size: 1.6rem;
+}
+.urgent-banner p {
+  font-size: 1.1rem;
+  line-height: 1.45;
+}
+.urgent-actions {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+.urgent-actions button {
+  min-height: 64px;
+  font-size: 1.1rem;
+  justify-content: center;
+}
+.urgent-actions .primary {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.rejections {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.8rem;
+}
+.rejection {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 0.8rem;
+}
+.rejection p {
+  margin: 0;
+}
+
+.shift-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+.shift-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.kanban-column.column-late h2 {
+  color: var(--red);
+}
+.kanban-column.column-done h2 {
+  color: var(--green);
+}
+/* Нажатые кнопки по умолчанию синие (!important выше по файлу): аварийный переключатель — красный. */
+button.emergency-toggle[aria-pressed='true'] {
+  background: var(--red) !important;
+  border-color: var(--red) !important;
+  color: #fff !important;
+  box-shadow: 0 3px 12px #a51f2333;
+}
+button.ai-candidate[aria-pressed='true'] small {
+  color: #e8f0ff !important;
+}
+button.ai-candidate[aria-pressed='true'] {
+  font-size: 1em;
+}

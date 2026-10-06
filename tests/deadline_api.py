@@ -10,7 +10,7 @@ m=login('master','LocalMaster_12345');w=login('worker1','LocalWorker1_12345')
 id=call({'action':'create','data':{'title':'Проверка серверной просрочки','equipment':'e0','worker':'worker1','priority':'emergency','type':'planned','due':'2020-01-01T10:00:00Z'}},m)[0]['id']
 for attempt in range(35):
  data=call(cookie=m)[0]
- if any(a['order']==id and 'просрочка' in a['title'] for a in data['alerts']):break
+ if any(a['order']==id and 'просроч' in a['title'] for a in data['alerts']):break
  time.sleep(1)
 else:raise AssertionError('No server deadline event within 35 seconds')
 assert any(a['order']==id for a in call(cookie=w)[0]['alerts'])

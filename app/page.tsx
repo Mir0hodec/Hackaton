@@ -38,6 +38,9 @@ import { insights } from '../lib/insights';
 import { createXlsx } from '../lib/xlsx';
 import { activeMinutes, equipmentDowntime } from '../lib/timing';
 import { putLocal, readLocal, removeLocal } from '../lib/offline';
+import { shiftOf } from '../lib/shift';
+import { AssigneeHint, CodeHint, useRecommendation } from '../components/assist';
+import { UrgentBanner, playAlarm, playChime, unlockAudio } from '../components/urgent';
 const roleIcons: any = {
   master: ClipboardCheck,
   worker: Wrench,
@@ -108,7 +111,8 @@ export default function App() {
     [period, setPeriod] = useState('90'),
     [board, setBoard] = useState(false),
     [install, setInstall] = useState<any>(null),
-    [noticeIds, setNoticeIds] = useState<string[]>([]);
+    [urgent, setUrgent] = useState<any>(null);
+  const seenAlerts = useRef<{ scope: string; ids: Set<string> }>({ scope: '', ids: new Set() });
   const load = useCallback(async () => {
     try {
       const api = endpoint();
@@ -191,6 +195,28 @@ export default function App() {
   const order = orders.find((o: any) => o.id === selected);
   const active = orders.filter((o: any) => !closed(o));
   const late = active.filter(overdue);
+  const shift = shiftOf(Date.now());
+  const inShift = (iso?: string) => !!iso && Date.parse(iso) >= shift.start && Date.parse(iso) < shift.end;
+  const shiftStats = {
+    issued: orders.filter((o: any) => inShift(o.created)).length,
+    done: orders.filter((o: any) => o.status === 'closed' && inShift(o.closedAt)).length,
+    late: late.length,
+    rejected: orders.filter((o: any) => o.status === 'rejected' && inShift(o.updatedAt || o.created)).length,
+    downtime: new Set(
+      active.filter((o: any) => o.downtimeStarted && !o.downtimeEnded).map((o: any) => o.equipment),
+    ).size,
+  };
+  // Колонки доски по ТЗ 5.2: просроченные выделены отдельно, выполненные — за текущую смену.
+  const boardColumns: [string, string, (o: any) => boolean][] = [
+    ['late', 'Просроченные', (o) => overdue(o)],
+    ['issued', 'Выданные', (o) => o.status === 'issued'],
+    ['accepted', 'Принятые', (o) => o.status === 'accepted'],
+    ['queued', 'В очереди', (o) => o.status === 'queued'],
+    ['working', 'В работе', (o) => ['working', 'paused'].includes(o.status)],
+    ['review', 'Проверка и доработка', (o) => ['review', 'rework'].includes(o.status)],
+    ['done', 'Выполненные за смену', (o) => o.status === 'closed' && inShift(o.closedAt)],
+  ];
+  const boardColumn = (o: any) => boardColumns.find(([, , test]) => test(o))?.[0];
   const eqName = (id: string) => data?.equipment?.find((x: any) => x.id === id)?.name || id;
   const userName = (id: string) => users.find((x: any) => x.id === id)?.name || id;
   const areaName = (id: string) => data?.areas?.find((x: any) => x.id === id)?.name || id;
@@ -241,16 +267,79 @@ export default function App() {
     ...(data?.alerts || []),
     ...calculatedAlerts.filter((a: any) => !(data?.alerts || []).some((x: any) => x.order === a.order)),
   ];
+  // Новые уведомления: звук, системное уведомление в фоне и полноэкранное предупреждение для аварийных.
   useEffect(() => {
-    if (!user || !('Notification' in window) || Notification.permission !== 'granted') return;
-    const fresh = alerts.filter((a: any) => !noticeIds.includes(a.id));
-    fresh.slice(0, 3).forEach((a: any) => {
-      navigator.serviceWorker?.ready
-        .then((r) => r.showNotification(a.title, { body: a.text, tag: a.id, icon: '/icon-192.png' }))
-        .catch(() => {});
-    });
-    if (fresh.length) setNoticeIds((p) => [...p, ...fresh.map((a: any) => a.id)]);
+    if (!user) return;
+    const scope = data.environmentId + ':' + user.id;
+    if (seenAlerts.current.scope !== scope) {
+      seenAlerts.current = { scope, ids: new Set(alerts.map((a: any) => a.id)) };
+      // При входе исполнителя сразу показываем непринятый аварийный наряд.
+      const pending =
+        user.role === 'worker' &&
+        orders.find((o: any) => o.priority === 'emergency' && o.status === 'issued');
+      if (pending)
+        setUrgent({
+          order: pending.id,
+          title: `АВАРИЙНЫЙ наряд №${pending.number}`,
+          text: `${pending.title}. ${eqName(pending.equipment)}`,
+        });
+      return;
+    }
+    const fresh = alerts.filter((a: any) => !seenAlerts.current.ids.has(a.id));
+    fresh.forEach((a: any) => seenAlerts.current.ids.add(a.id));
+    if (!fresh.length) return;
+    const emergency = fresh.find((a: any) => a.emergency);
+    if (emergency) {
+      setUrgent(emergency);
+      playAlarm();
+    } else playChime();
+    if (
+      'Notification' in window &&
+      Notification.permission === 'granted' &&
+      document.visibilityState !== 'visible'
+    )
+      fresh.slice(0, 3).forEach((a: any) => {
+        navigator.serviceWorker?.ready
+          .then((r) =>
+            r.showNotification(a.title, {
+              body: a.text,
+              tag: a.id,
+              icon: '/icon-192.png',
+              data: { order: a.order },
+            }),
+          )
+          .catch(() => {});
+      });
   }, [alerts.map((a: any) => a.id).join(','), user?.id]);
+  // Звук разблокируется первым касанием; переход к наряду из системного уведомления.
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'open-order') {
+        setSelected(e.data.order);
+        setModal('');
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      navigator.serviceWorker?.removeEventListener('message', onMessage);
+    };
+  }, []);
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get('order');
+    if (!target) return;
+    setSelected(target);
+    params.delete('order');
+    window.history.replaceState(
+      null,
+      '',
+      window.location.pathname + (params.toString() ? '?' + params.toString() : ''),
+    );
+  }, [user?.id]);
   useEffect(() => {
     if (!user) return;
     const own = (data?.alerts || []).filter((a: any) => a.workcard);
@@ -481,6 +570,25 @@ export default function App() {
     const working = jobs.find((o: any) => o.status === 'working');
     return working ? `Выполняет №${working.number}` : jobs.length ? `В очереди: ${jobs.length}` : 'Свободен';
   };
+  // Цвет статуса по ТЗ 5.2: зелёный — свободен, жёлтый — в работе, синий — очередь, серый — не на смене.
+  const availabilityKind = (w: any) => {
+    if (w.disabled || !w.onShift) return 'off';
+    const text = available(w);
+    return text === 'Свободен' ? 'free' : text.startsWith('В очереди') ? 'queue' : 'busy';
+  };
+  const rejectionList = (o: any) =>
+    o.rejections ||
+    (o.status === 'rejected' && o.rejectionReason
+      ? [{ worker: o.worker, reason: o.rejectionReason, at: o.updatedAt || o.created }]
+      : []);
+  const statusLegend = (
+    <div className="status-legend" aria-label="Обозначения статусов">
+      <span className="availability free">Свободен</span>
+      <span className="availability busy">В работе</span>
+      <span className="availability queue">Очередь</span>
+      <span className="availability off">Не на смене</span>
+    </div>
+  );
   const visibility = (
     <div className="visibility">
       <button onClick={() => setA11y(!a11y)} aria-expanded={a11y}>
@@ -587,6 +695,57 @@ export default function App() {
         materials: materialRows,
       }).catch(() => {});
   }, [photos, materialRows]);
+  const [createText, setCreateText] = useState(''),
+    [createWorker, setCreateWorker] = useState(''),
+    [createNorm, setCreateNorm] = useState('90'),
+    [quickEmergency, setQuickEmergency] = useState(true),
+    [quickPicked, setQuickPicked] = useState(false);
+  const canRecommend = user?.role === 'master';
+  const createRec = useRecommendation(
+    endpoint(),
+    formEq,
+    createText,
+    canRecommend && modal === 'create' && assignment === 'person',
+  );
+  const quickRec = useRecommendation(endpoint(), formEq, quickTitle, canRecommend && modal === 'quick');
+  const [editWorker, setEditWorker] = useState('');
+  const editRec = useRecommendation(
+    endpoint(),
+    order?.equipment || '',
+    order ? `${order.title} ${order.description || ''}` : '',
+    canRecommend && modal === 'edit',
+  );
+  // При переназначении после отказа не предлагаем того, кто отказался.
+  const editRanked = editRec.result && {
+    ...editRec.result,
+    ranked: editRec.result.ranked.filter((w) => order?.status !== 'rejected' || w.id !== order?.worker),
+  };
+  useEffect(() => {
+    if (modal === 'edit' && order) setEditWorker(order.status === 'rejected' ? '' : order.worker);
+  }, [modal]);
+  useEffect(() => {
+    const best = editRanked?.ranked?.[0]?.id;
+    if (best && !editWorker) setEditWorker(best);
+  }, [editRec.result]);
+  useEffect(() => {
+    if (modal === 'create') {
+      setCreateWorker('');
+      setCreateText('');
+      setCreateNorm('90');
+    }
+    if (modal === 'quick') {
+      setQuickPicked(false);
+      setQuickEmergency(true);
+    }
+  }, [modal]);
+  useEffect(() => {
+    const best = createRec.result?.ranked?.[0]?.id;
+    if (best && !createWorker) setCreateWorker(best);
+  }, [createRec.result]);
+  useEffect(() => {
+    const best = quickRec.result?.ranked?.[0]?.id;
+    if (best && !quickPicked) setQuickWorker(best);
+  }, [quickRec.result]);
   async function upload(files: FileList | null) {
     if (!files) return;
     setUploading(true);
@@ -1178,6 +1337,66 @@ export default function App() {
                       </button>
                     </div>
                   )}
+                  {user.role === 'master' && order.status === 'rejected' && (
+                    <div className="actions">
+                      <button className="primary" onClick={() => setModal('edit')}>
+                        <Users size={18} />
+                        Переназначить другому исполнителю
+                      </button>
+                    </div>
+                  )}
+                  {rejectionList(order).length > 0 && (
+                    <div className="rejections">
+                      <h3>Отказы от наряда</h3>
+                      {rejectionList(order).map((r: any, i: number) => (
+                        <div key={i} className="rejection">
+                          <p>
+                            <b>{userName(r.worker)}</b> · {fmt(r.at)}: «{r.reason}»
+                          </p>
+                          {r.unjustified !== undefined && (
+                            <span className={'badge ' + (r.unjustified ? 'danger' : 'success')}>
+                              {r.unjustified ? 'Без уважительной причины' : 'Уважительная причина'}
+                            </span>
+                          )}
+                          {user.role === 'master' && (
+                            <div className="button-row">
+                              <button
+                                aria-pressed={r.unjustified === false}
+                                disabled={busy}
+                                onClick={() =>
+                                  action({
+                                    action: 'rejection-verdict',
+                                    id: order.id,
+                                    index: i,
+                                    unjustified: false,
+                                  })
+                                }
+                              >
+                                Уважительная
+                              </button>
+                              <button
+                                aria-pressed={r.unjustified === true}
+                                disabled={busy}
+                                onClick={() =>
+                                  action({
+                                    action: 'rejection-verdict',
+                                    id: order.id,
+                                    index: i,
+                                    unjustified: true,
+                                  })
+                                }
+                              >
+                                Без уважительной причины
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <p className="muted small">
+                        Отказ без уважительной причины снижает рейтинг на 2 балла.
+                      </p>
+                    </div>
+                  )}
                 </section>
                 <section className="panel">
                   <h2>Хронология</h2>
@@ -1313,51 +1532,121 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <div className="metrics">
-                <button
-                  onClick={() => {
-                    setFilter('active');
-                    setTab('orders');
-                  }}
-                >
-                  <span>В работе и очереди</span>
-                  <strong>{active.length.toString().padStart(2, '0')}</strong>
-                  <small>
-                    <ClipboardCheck size={15} />
-                    Текущие наряды
-                  </small>
-                </button>
-                <button
-                  className="metric-danger"
-                  onClick={() => {
-                    setFilter('late');
-                    setTab('orders');
-                  }}
-                >
-                  <span>Просрочено</span>
-                  <strong>{late.length.toString().padStart(2, '0')}</strong>
-                  <small>
-                    <Clock size={15} />
-                    Требуют внимания
-                  </small>
-                </button>
-                <button onClick={() => setTab('people')}>
-                  <span>{user.role === 'worker' ? 'Выполнено сегодня' : 'Свободных сотрудников'}</span>
-                  <strong>
-                    {user.role === 'worker'
-                      ? orders.filter(
-                          (o: any) =>
-                            o.status === 'closed' &&
-                            new Date(o.closedAt).toDateString() === new Date().toDateString(),
-                        ).length
-                      : workers.filter((w: any) => available(w) === 'Свободен').length}
-                  </strong>
-                  <small>
-                    <Users size={15} />
-                    {user.role === 'worker' ? 'Принято мастером' : 'Готовы к назначению'}
-                  </small>
-                </button>
-              </div>
+              {user.role !== 'worker' && (
+                <div className="shift-heading">
+                  <Clock size={16} /> {shift.name}
+                </div>
+              )}
+              {user.role !== 'worker' ? (
+                <div className="metrics shift-metrics">
+                  <button
+                    onClick={() => {
+                      setFilter('all');
+                      setTab('orders');
+                    }}
+                  >
+                    <span>Выдано за смену</span>
+                    <strong>{String(shiftStats.issued).padStart(2, '0')}</strong>
+                    <small>
+                      <ClipboardCheck size={15} />В работе и очереди: {active.length}
+                    </small>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFilter('closed');
+                      setTab('orders');
+                    }}
+                  >
+                    <span>Выполнено</span>
+                    <strong>{String(shiftStats.done).padStart(2, '0')}</strong>
+                    <small>
+                      <CheckCheck size={15} />
+                      Принято мастером
+                    </small>
+                  </button>
+                  <button
+                    className="metric-danger"
+                    onClick={() => {
+                      setFilter('late');
+                      setTab('orders');
+                    }}
+                  >
+                    <span>Просрочено</span>
+                    <strong>{String(shiftStats.late).padStart(2, '0')}</strong>
+                    <small>
+                      <Clock size={15} />
+                      Отклонено за смену: {shiftStats.rejected}
+                    </small>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFilter('active');
+                      setTab('orders');
+                    }}
+                  >
+                    <span>Оборудование в простое</span>
+                    <strong>{String(shiftStats.downtime).padStart(2, '0')}</strong>
+                    <small>
+                      <Factory size={15} />
+                      Остановлено сейчас
+                    </small>
+                  </button>
+                  <button onClick={() => setTab('people')}>
+                    <span>Свободны</span>
+                    <strong>{workers.filter((w: any) => availabilityKind(w) === 'free').length}</strong>
+                    <small>
+                      <Users size={15} />
+                      Готовы к назначению
+                    </small>
+                  </button>
+                </div>
+              ) : (
+                <div className="metrics">
+                  <button
+                    onClick={() => {
+                      setFilter('active');
+                      setTab('orders');
+                    }}
+                  >
+                    <span>В работе и очереди</span>
+                    <strong>{active.length.toString().padStart(2, '0')}</strong>
+                    <small>
+                      <ClipboardCheck size={15} />
+                      Текущие наряды
+                    </small>
+                  </button>
+                  <button
+                    className="metric-danger"
+                    onClick={() => {
+                      setFilter('late');
+                      setTab('orders');
+                    }}
+                  >
+                    <span>Просрочено</span>
+                    <strong>{late.length.toString().padStart(2, '0')}</strong>
+                    <small>
+                      <Clock size={15} />
+                      Требуют внимания
+                    </small>
+                  </button>
+                  <button onClick={() => setTab('people')}>
+                    <span>{user.role === 'worker' ? 'Выполнено сегодня' : 'Свободных сотрудников'}</span>
+                    <strong>
+                      {user.role === 'worker'
+                        ? orders.filter(
+                            (o: any) =>
+                              o.status === 'closed' &&
+                              new Date(o.closedAt).toDateString() === new Date().toDateString(),
+                          ).length
+                        : workers.filter((w: any) => available(w) === 'Свободен').length}
+                    </strong>
+                    <small>
+                      <Users size={15} />
+                      {user.role === 'worker' ? 'Принято мастером' : 'Готовы к назначению'}
+                    </small>
+                  </button>
+                </div>
+              )}
               {user.role === 'worker' && (
                 <section className="panel">
                   <WorkProfile
@@ -1401,6 +1690,7 @@ export default function App() {
                     <h2>{user.role === 'worker' ? 'Контроль сроков' : 'На смене'}</h2>
                     <span className="live-dot" />
                   </div>
+                  {user.role !== 'worker' && statusLegend}
                   {user.role === 'worker' ? (
                     alerts.length ? (
                       alerts.map((a: any) => (
@@ -1429,9 +1719,7 @@ export default function App() {
                             <small>
                               {w.spec} · Бригада {w.brigade}
                             </small>
-                            <span className={'availability ' + (available(w) === 'Свободен' ? 'free' : '')}>
-                              {available(w)}
-                            </span>
+                            <span className={'availability ' + availabilityKind(w)}>{available(w)}</span>
                             <WorkSummary
                               card={currentWork(worklogs, w.id)}
                               serverTime={online ? data.serverTime : undefined}
@@ -1594,33 +1882,31 @@ export default function App() {
               </div>
               <div className={board ? 'kanban' : 'cards orders-grid'}>
                 {board
-                  ? Object.entries(statuses)
-                      .filter(([k]) => !['closed', 'cancelled', 'rejected'].includes(k))
-                      .map(([k, label]: any) => (
-                        <section className="kanban-column" key={k}>
+                  ? boardColumns.map(([key, label]) => {
+                      const items = orders.filter(
+                        (o: any) =>
+                          boardColumn(o) === key &&
+                          (!area || o.area === area) &&
+                          (!workerFilter || o.worker === workerFilter || o.members?.includes(workerFilter)) &&
+                          (!equipmentFilter || o.equipment === equipmentFilter) &&
+                          (!priority || o.priority === priority) &&
+                          `${o.number} ${o.title} ${eqName(o.equipment)}`
+                            .toLowerCase()
+                            .includes(search.toLowerCase()),
+                      );
+                      return (
+                        <section className={'kanban-column column-' + key} key={key}>
                           <h2>
-                            {label}{' '}
-                            <span className="count">{orders.filter((o: any) => o.status === k).length}</span>
+                            {label} <span className="count">{items.length}</span>
                           </h2>
-                          {orders
-                            .filter(
-                              (o: any) =>
-                                o.status === k &&
-                                (!area || o.area === area) &&
-                                (!workerFilter ||
-                                  o.worker === workerFilter ||
-                                  o.members?.includes(workerFilter)) &&
-                                (!equipmentFilter || o.equipment === equipmentFilter) &&
-                                (!priority || o.priority === priority) &&
-                                `${o.number} ${o.title} ${eqName(o.equipment)}`
-                                  .toLowerCase()
-                                  .includes(search.toLowerCase()),
-                            )
+                          {items
+                            .sort((a: any, b: any) => Date.parse(a.due) - Date.parse(b.due))
                             .map((o: any) => (
                               <Card key={o.id} o={o} />
                             ))}
                         </section>
-                      ))
+                      );
+                    })
                   : orders
                       .filter(
                         (o: any) =>
@@ -1645,6 +1931,7 @@ export default function App() {
               <div className="page-heading">
                 <div className="eyebrow">ЗАГРУЗКА И ДОСТУПНОСТЬ</div>
                 <h1>Сотрудники</h1>
+                {statusLegend}
                 {user.role === 'admin' && (
                   <button className="primary" onClick={() => setModal('user-create')}>
                     <Plus />
@@ -1659,9 +1946,7 @@ export default function App() {
                       <div className="staff-icon">
                         <Wrench />
                       </div>
-                      <span className={'availability ' + (available(w) === 'Свободен' ? 'free' : '')}>
-                        {available(w)}
-                      </span>
+                      <span className={'availability ' + availabilityKind(w)}>{available(w)}</span>
                     </div>
                     <h2>{w.name}</h2>
                     <p className="muted">
@@ -1905,6 +2190,29 @@ export default function App() {
           <Check size={18} />
           {toast}
         </div>
+      )}
+      {urgent && (
+        <UrgentBanner
+          title={urgent.title}
+          text={urgent.text}
+          busy={busy}
+          canAccept={
+            user.role === 'worker' && orders.find((o: any) => o.id === urgent.order)?.status === 'issued'
+          }
+          onAccept={async () => {
+            const id = urgent.order;
+            if (await action({ action: 'transition', id, status: 'accepted' })) {
+              setUrgent(null);
+              setSelected(id);
+            }
+          }}
+          onOpen={() => {
+            setSelected(urgent.order || null);
+            setModal('');
+            setUrgent(null);
+          }}
+          onClose={() => setUrgent(null)}
+        />
       )}
 
       {modal === 'catalog-edit' && recordEdit && (
@@ -2255,11 +2563,13 @@ export default function App() {
                   description: quickTitle,
                   equipment: formEq,
                   worker: quickWorker,
-                  priority: 'high',
+                  priority: quickEmergency ? 'emergency' : 'high',
                   type: 'unplanned',
-                  norm: 60,
+                  norm: quickRec.result?.code?.norm || 60,
                   due: new Date(Date.now() + 3600000).toISOString(),
                   photos,
+                  suggestedCode: quickRec.result?.code?.id,
+                  recommendedWorker: quickRec.result?.ranked?.[0]?.id,
                 },
               });
               if (r) {
@@ -2269,9 +2579,18 @@ export default function App() {
             }}
           >
             <p className="muted">
-              Высокий приоритет · внеплановый ремонт · срок через 1 час. Проверьте оборудование и исполнителя
-              перед выдачей.
+              Внеплановый ремонт · срок через 1 час. Исполнитель подобран автоматически — проверьте перед
+              выдачей.
             </p>
+            <button
+              type="button"
+              className={'emergency-toggle ' + (quickEmergency ? 'on' : '')}
+              aria-pressed={quickEmergency}
+              onClick={() => setQuickEmergency(!quickEmergency)}
+            >
+              <TriangleAlert size={20} />
+              {quickEmergency ? 'Аварийный — срочно в работу' : 'Высокий приоритет'}
+            </button>
             <label>
               Задание
               <input
@@ -2293,7 +2612,13 @@ export default function App() {
             </label>
             <label>
               Исполнитель
-              <select value={quickWorker} onChange={(e) => setQuickWorker(e.target.value)}>
+              <select
+                value={quickWorker}
+                onChange={(e) => {
+                  setQuickPicked(true);
+                  setQuickWorker(e.target.value);
+                }}
+              >
                 {workers
                   .filter((w: any) => w.onShift && !w.disabled)
                   .map((w: any) => (
@@ -2303,6 +2628,16 @@ export default function App() {
                   ))}
               </select>
             </label>
+            <AssigneeHint
+              result={quickRec.result}
+              loading={quickRec.loading}
+              selected={quickWorker}
+              onPick={(id) => {
+                setQuickPicked(true);
+                setQuickWorker(id);
+              }}
+            />
+            <CodeHint result={quickRec.result} onApplyNorm={() => {}} />
             {photoInput}
             {error && (
               <p className="error" role="alert">
@@ -2471,7 +2806,15 @@ export default function App() {
           }}
           title="Выдать наряд"
         >
-          <form onSubmit={create}>
+          <form
+            onSubmit={create}
+            onChange={(e) => {
+              const f = new FormData(e.currentTarget);
+              setCreateText(`${f.get('title') || ''} ${f.get('description') || ''}`.trim());
+            }}
+          >
+            <input type="hidden" name="suggestedCode" value={createRec.result?.code?.id || ''} />
+            <input type="hidden" name="recommendedWorker" value={createRec.result?.ranked?.[0]?.id || ''} />
             <label>
               Проблема / задание
               <input name="title" required placeholder="Например: течь масла на насосе" maxLength={180} />
@@ -2537,7 +2880,12 @@ export default function App() {
             ) : (
               <label>
                 Исполнитель
-                <select name="worker" required defaultValue="">
+                <select
+                  name="worker"
+                  required
+                  value={createWorker}
+                  onChange={(e) => setCreateWorker(e.target.value)}
+                >
                   <option value="" disabled>
                     Выберите сотрудника
                   </option>
@@ -2555,6 +2903,15 @@ export default function App() {
                 </select>
               </label>
             )}
+            {assignment === 'person' && (
+              <AssigneeHint
+                result={createRec.result}
+                loading={createRec.loading}
+                selected={createWorker}
+                onPick={setCreateWorker}
+              />
+            )}
+            <CodeHint result={createRec.result} onApplyNorm={(m) => setCreateNorm(String(m))} />
             <div className="form-grid">
               <label>
                 Тип работ
@@ -2585,7 +2942,13 @@ export default function App() {
               </label>
               <label>
                 Норматив, минут
-                <input name="norm" type="number" min="1" defaultValue="90" />
+                <input
+                  name="norm"
+                  type="number"
+                  min="1"
+                  value={createNorm}
+                  onChange={(e) => setCreateNorm(e.target.value)}
+                />
               </label>
             </div>
             <div className="form-grid">
@@ -2796,7 +3159,7 @@ export default function App() {
             setModal('');
             setError('');
           }}
-          title="Изменить наряд"
+          title={order.status === 'rejected' ? 'Переназначить наряд' : 'Изменить наряд'}
         >
           <form
             onSubmit={async (e) => {
@@ -2806,7 +3169,7 @@ export default function App() {
                 await action({
                   action: 'edit',
                   id: order.id,
-                  worker: f.get('worker'),
+                  worker: editWorker,
                   priority: f.get('priority'),
                   cancel: f.get('cancel') === 'on',
                   reason: f.get('reason'),
@@ -2817,16 +3180,33 @@ export default function App() {
           >
             <label>
               Исполнитель
-              <select name="worker" defaultValue={order.worker}>
+              <select
+                name="worker"
+                required
+                value={editWorker}
+                onChange={(e) => setEditWorker(e.target.value)}
+              >
+                <option value="" disabled>
+                  Выберите сотрудника
+                </option>
                 {workers
-                  .filter((w: any) => w.onShift && !w.disabled)
+                  .filter(
+                    (w: any) =>
+                      w.onShift && !w.disabled && (order.status !== 'rejected' || w.id !== order.worker),
+                  )
                   .map((w: any) => (
                     <option key={w.id} value={w.id}>
-                      {w.name}
+                      {w.name} · {w.spec} · {available(w)}
                     </option>
                   ))}
               </select>
             </label>
+            <AssigneeHint
+              result={editRanked}
+              loading={editRec.loading}
+              selected={editWorker}
+              onPick={setEditWorker}
+            />
             <label>
               Приоритет
               <select name="priority" defaultValue={order.priority}>
@@ -2837,14 +3217,18 @@ export default function App() {
                 ))}
               </select>
             </label>
-            <label className="checkbox">
-              <input type="checkbox" name="cancel" />
-              Отменить наряд
-            </label>
-            <label>
-              Причина отмены
-              <textarea name="reason" />
-            </label>
+            {order.status !== 'rejected' && (
+              <>
+                <label className="checkbox">
+                  <input type="checkbox" name="cancel" />
+                  Отменить наряд
+                </label>
+                <label>
+                  Причина отмены
+                  <textarea name="reason" />
+                </label>
+              </>
+            )}
             {error && <p className="error">{error}</p>}
             <button className="primary" disabled={busy}>
               Сохранить

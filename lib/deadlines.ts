@@ -2,7 +2,33 @@ import { checkWorkDeadlines } from './workcards';
 import { db, list } from './server';
 import { namespace } from './context';
 import { notifyUsers } from './web-push';
-import { closed, statuses } from './domain';
+import { closed, statuses, formatServerClock } from './domain';
+import { loadSettings } from './settings';
+import { recommendWorkers } from './recommend';
+
+const minutesText = (m: number) => {
+  const total = Math.ceil(m);
+  return total >= 60 ? `${Math.floor(total / 60)} ч ${total % 60} мин` : `${total} мин`;
+};
+
+/** Записывает уведомление адресатам один раз (по id) и возвращает true, если оно новое. */
+export async function storeAlert(record: {
+  id: string;
+  order?: string;
+  title: string;
+  text: string;
+  to: string[];
+  emergency?: boolean;
+  kind?: string;
+}) {
+  const value = { ...record, to: [...new Set(record.to.filter(Boolean))], created: new Date().toISOString() };
+  const result = await db()
+    .prepare('INSERT OR IGNORE INTO records(id,kind,data,version) VALUES(?,?,?,0)')
+    .bind(namespace() + record.id, namespace() + 'alerts', JSON.stringify(value))
+    .run();
+  return !!result.meta.changes;
+}
+
 export async function checkDeadlines(origin: string) {
   const now = Date.now();
   const slot = Math.floor(now / 30000);
@@ -11,75 +37,80 @@ export async function checkDeadlines(origin: string) {
     .bind(namespace() + 'deadline-tick:' + slot, namespace() + 'deadline-ticks', String(now))
     .run();
   if (!lock.meta.changes) return 0;
-  const [orders, users, equipment, areas] = await Promise.all(
-    ['orders', 'users', 'equipment', 'areas'].map(list),
+  const settings = await loadSettings();
+  const [orders, users, equipment, areas, codes, worklogs] = await Promise.all(
+    ['orders', 'users', 'equipment', 'areas', 'codes', 'worklogs'].map(list),
   );
   let created = await checkWorkDeadlines(origin);
   const recipients = new Set<string>();
+  const name = (items: any[], id: string) => items.find((x) => x.id === id)?.name || id;
   for (const o of orders.filter((o) => !closed(o))) {
     const left = (Date.parse(o.due) - now) / 60000,
       age = (now - Date.parse(o.created)) / 60000;
     const assigned = o.members || [o.worker];
     const targets: { kind: string; title: string; to: string[]; body: string }[] = [];
-    const name = (items: any[], id: string) => items.find((x) => x.id === id)?.name || id;
-    const context = `${name(equipment, o.equipment)} · ${name(areas, o.area)} · ${name(users, o.worker)} · ${statuses[o.status]}. ${o.lastComment || ''}`;
-    if (left <= 30 && left > 0)
+    const since = o.status === 'working' && o.activeSince ? ` с ${formatServerClock(o.activeSince)}` : '';
+    const context =
+      `${name(equipment, o.equipment)}, ${name(areas, o.area)}. Исполнитель: ${name(users, o.worker)}. ` +
+      `Статус: ${String(statuses[o.status]).toLowerCase()}${since}.` +
+      (o.lastComment ? ` Последний комментарий: «${o.lastComment}».` : '');
+    if (left <= settings.remindBeforeMin && left > 0)
       targets.push({
         kind: 'soon',
-        title: `№${o.number}: до срока ${Math.ceil(left)} мин`,
+        title: `Наряд №${o.number}: до срока ${minutesText(left)}`,
         to: assigned,
         body: context,
       });
     if (left <= 0)
       targets.push({
-        kind: 'late:' + Math.floor(-left / 30),
-        title: `№${o.number}: просрочка ${Math.ceil(-left)} мин`,
+        kind: 'late:' + Math.floor(-left / settings.repeatEveryMin),
+        title: `Наряд №${o.number} просрочен на ${minutesText(-left)}`,
         to: [
           ...assigned,
           o.master,
-          ...(left <= -120 ? users.filter((u) => u.role === 'manager').map((u) => u.id) : []),
+          ...(left <= -settings.escalateManagerAfterMin
+            ? users.filter((u) => u.role === 'manager').map((u) => u.id)
+            : []),
         ],
         body: context,
       });
-    if (o.status === 'issued' && age >= (o.priority === 'emergency' ? 3 : 10)) {
-      const free = users.find(
-        (w) =>
-          w.role === 'worker' &&
-          w.onShift &&
-          !w.disabled &&
-          w.id !== o.worker &&
-          !orders.some(
-            (x) => !closed(x) && x.status === 'working' && (x.worker === w.id || x.members?.includes(w.id)),
-          ),
-      );
+    const timeout =
+      o.priority === 'emergency' ? settings.acceptTimeoutEmergencyMin : settings.acceptTimeoutMin;
+    if (o.status === 'issued' && age >= timeout) {
+      const best = recommendWorkers({
+        orders,
+        users,
+        equipment,
+        codes,
+        worklogs,
+        equipmentId: o.equipment,
+        text: `${o.title} ${o.description || ''}`,
+        exclude: assigned,
+      }).ranked[0];
       targets.push({
         kind: 'unaccepted',
-        title: `№${o.number}: исполнитель не принял за ${Math.floor(age)} мин`,
+        title: `Наряд №${o.number} не принят за ${Math.floor(age)} мин`,
         to: [o.master],
         body:
           context +
-          (free
-            ? ` Возможная замена: ${free.name} (${free.spec}). Мастер проверяет допуск.`
-            : ' Свободной замены нет.'),
+          (best
+            ? ` Предлагаемая замена: ${best.name} (${best.reasons.slice(0, 2).join(', ')}). Мастер проверяет допуск.`
+            : ' Свободной замены на смене нет.'),
       });
     }
     for (const a of targets) {
-      const id = 'alert:' + o.id + ':' + a.kind;
-      const record = {
-        id,
+      const fresh = await storeAlert({
+        id: 'alert:' + o.id + ':' + a.kind,
         order: o.id,
         title: a.title,
         text: a.body,
-        to: [...new Set(a.to)],
-        created: new Date(now).toISOString(),
-      };
-      const result = await db()
-        .prepare('INSERT OR IGNORE INTO records(id,kind,data,version) VALUES(?,?,?,0)')
-        .bind(namespace() + id, namespace() + 'alerts', JSON.stringify(record))
-        .run();
-      if (result.meta.changes) {
+        to: a.to,
+        emergency: o.priority === 'emergency' || a.kind.startsWith('late'),
+        kind: a.kind.split(':')[0],
+      });
+      if (fresh) {
         created++;
-        record.to.forEach((x) => recipients.add(x));
+        a.to.forEach((x) => recipients.add(x));
       }
     }
   }

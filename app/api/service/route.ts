@@ -1,5 +1,7 @@
 import { workcardAction } from '../../../lib/workcards';
-import { checkDeadlines } from '../../../lib/deadlines';
+import { checkDeadlines, storeAlert } from '../../../lib/deadlines';
+import { loadSettings, updateSettings } from '../../../lib/settings';
+import { recommendWorkers } from '../../../lib/recommend';
 import { credentials, verifyPassword } from '../../../lib/password';
 import { pushKeys, subscribePush, removePush, notifyUsers } from '../../../lib/web-push';
 import { rateLimit } from '../../../lib/rate-limit';
@@ -22,7 +24,7 @@ import {
   cookie,
   nextNumber,
 } from '../../../lib/server';
-import { evaluate, closed } from '../../../lib/domain';
+import { evaluate, closed, formatServerTime } from '../../../lib/domain';
 export const dynamic = 'force-dynamic';
 function json(data: any, status = 200, headers: any = {}) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
@@ -39,6 +41,22 @@ export async function GET(req: Request) {
         workspace: (env as any).WORKSPACE_MODE === 'true',
         accounts: (env as any).WORKSPACE_MODE === 'true' ? [] : users.map(safeUser),
       });
+    // Лёгкий запрос service worker'а: текст последних уведомлений для показа push.
+    if (new URL(req.url).searchParams.get('view') === 'notifications') {
+      const items = (await list('alerts'))
+        .filter((a) => a.to?.includes(u.id))
+        .sort((a, b) => Date.parse(b.created) - Date.parse(a.created))
+        .slice(0, 5)
+        .map(({ id, title, text, order, emergency, created }) => ({
+          id,
+          title,
+          text,
+          order,
+          emergency,
+          created,
+        }));
+      return json({ items });
+    }
     if (!u.lastSeen || Date.now() - Date.parse(u.lastSeen) > 60000)
       await save('users', { ...u, lastSeen: new Date().toISOString() }, u.version).catch(() => {});
     await checkDeadlines(new URL(req.url).origin).catch(() => {});
@@ -46,6 +64,7 @@ export async function GET(req: Request) {
       .filter((a) => a.to?.includes(u.id))
       .sort((a, b) => Date.parse(b.created) - Date.parse(a.created))
       .slice(0, 60);
+    const settings = await loadSettings();
     const [areas, equipment, codes, materials, all] = await Promise.all(
       ['areas', 'equipment', 'codes', 'materials', 'orders'].map(list),
     );
@@ -64,6 +83,7 @@ export async function GET(req: Request) {
       materials,
       orders: u.role === 'worker' ? all.filter((o) => o.worker === u.id || o.members?.includes(u.id)) : all,
       alerts,
+      settings,
       demo: !!namespace(),
       environmentId: namespace() || 'workplace',
       capabilities: {
@@ -243,14 +263,46 @@ export async function POST(req: Request) {
         due: d.due,
         norm: Math.max(1, Number(d.norm) || 90),
         photos: Array.isArray(d.photos) ? d.photos.slice(0, 5) : [],
+        suggestedCode: typeof d.suggestedCode === 'string' ? d.suggestedCode.slice(0, 10) : null,
+        recommendedWorker: typeof d.recommendedWorker === 'string' ? d.recommendedWorker.slice(0, 60) : null,
         status: 'issued',
         created: now,
+        updatedAt: now,
         history: [{ at: now, actor: u.id, text: 'Наряд выдан' }],
       };
       await validatePhotos(o.photos, u.id);
       await save('orders', o);
+      await storeAlert({
+        id: 'new:' + o.id,
+        order: o.id,
+        title: `${o.priority === 'emergency' ? 'АВАРИЙНЫЙ наряд' : 'Новый наряд'} №${o.number}`,
+        text: `${o.title}. ${eq.name}. Срок: ${formatServerTime(o.due)}`,
+        to: o.members,
+        emergency: o.priority === 'emergency',
+        kind: 'new',
+      });
       await notifyUsers(o.members, new URL(req.url).origin).catch(() => {});
       return json({ ok: true, id: o.id });
+    }
+    if (b.action === 'recommend') {
+      requireRoles(u, ['master']);
+      const [orders, users, equipment, codes, worklogs] = await Promise.all(
+        ['orders', 'users', 'equipment', 'codes', 'worklogs'].map(list),
+      );
+      const result = recommendWorkers({
+        orders,
+        users,
+        equipment,
+        codes,
+        worklogs,
+        equipmentId: String(b.equipment || ''),
+        text: String(b.text || '').slice(0, 2000),
+      });
+      return json({ ...result, ranked: result.ranked.slice(0, 5) });
+    }
+    if (b.action === 'settings') {
+      requireRoles(u, ['admin']);
+      return json({ ok: true, settings: await updateSettings(b.data || {}) });
     }
     if (b.action === 'catalog-edit') {
       requireRoles(u, ['admin']);
@@ -304,6 +356,10 @@ export async function POST(req: Request) {
     const v = o.version;
     const now = new Date().toISOString();
     let event = '';
+    // Уведомления, которые записываются после успешного сохранения наряда.
+    const pendingAlerts: Parameters<typeof storeAlert>[0][] = [];
+    const users = await list('users');
+    const who = (id: string) => users.find((x) => x.id === id)?.name || id;
     if (b.action === 'transition') {
       requireRoles(u, ['worker']);
       const allowed: any = {
@@ -329,6 +385,8 @@ export async function POST(req: Request) {
         o.activeSince = now;
       }
       if (b.status === 'paused') stopWorkClock(o, now);
+      // Время реакции считается от выдачи до первого ответа исполнителя.
+      if (['accepted', 'queued', 'working'].includes(b.status)) o.acceptedAt ??= now;
       o.status = b.status;
       event =
         {
@@ -342,7 +400,40 @@ export async function POST(req: Request) {
         o.lastComment = String(b.reason).slice(0, 1000);
         event += ': ' + o.lastComment;
       }
-      if (b.status === 'rejected') o.rejectionReason = String(b.reason);
+      if (b.status === 'rejected') {
+        o.rejectionReason = String(b.reason);
+        o.rejections = [
+          ...(o.rejections || []),
+          { worker: u.id, reason: String(b.reason).slice(0, 1000), at: now },
+        ];
+        pendingAlerts.push({
+          id: `rejected:${o.id}:${o.rejections.length}`,
+          order: o.id,
+          title: `Наряд №${o.number} отклонён`,
+          text: `${who(u.id)}: «${o.rejectionReason}». Переназначьте наряд и оцените причину отказа.`,
+          to: [o.master],
+          emergency: o.priority === 'emergency',
+          kind: 'rejected',
+        });
+      } else if (o.priority === 'emergency' && ['accepted', 'working'].includes(b.status)) {
+        pendingAlerts.push({
+          id: `status:${o.id}:${b.status}`,
+          order: o.id,
+          title: `Аварийный №${o.number}: ${b.status === 'accepted' ? 'принят' : 'в работе'}`,
+          text: `${who(u.id)} — ${o.title}`,
+          to: [o.master],
+          kind: 'status',
+        });
+      }
+    } else if (b.action === 'rejection-verdict') {
+      requireRoles(u, ['master']);
+      if (!o.rejections && o.status === 'rejected' && o.rejectionReason)
+        o.rejections = [{ worker: o.worker, reason: o.rejectionReason, at: o.updatedAt || o.created }];
+      const item = o.rejections?.[Number(b.index)];
+      if (!item) throw new Error('Отказ не найден');
+      item.unjustified = !!b.unjustified;
+      item.reviewedBy = u.id;
+      event = `Причина отказа (${who(item.worker)}) признана ${item.unjustified ? 'неуважительной' : 'уважительной'}`;
     } else if (b.action === 'report') {
       requireRoles(u, ['worker']);
       if (!['working', 'paused', 'rework'].includes(o.status)) throw new Error('Сначала начните работу');
@@ -391,6 +482,28 @@ export async function POST(req: Request) {
       o.status = o.check.verdict === 'rework' ? 'rework' : 'review';
       if (o.status === 'rework') o.returned = true;
       event = o.status === 'rework' ? 'Проверка: требуется доработка' : 'Отчёт направлен мастеру';
+      const verdictText: any = {
+        accepted: 'принято',
+        remarks: 'принято с замечаниями',
+        rework: 'требует доработки',
+      };
+      pendingAlerts.push({
+        id: `report:${o.id}:${now}`,
+        order: o.id,
+        title: `Отчёт по наряду №${o.number}: ${verdictText[o.check.verdict]} (${o.check.score}/5)`,
+        text: `${who(u.id)} — ${o.title}. ${o.check.issues?.[0] || 'Замечаний нет.'}`,
+        to: [o.master],
+        kind: 'report',
+      });
+      if (o.status === 'rework')
+        pendingAlerts.push({
+          id: `rework:${o.id}:${now}`,
+          order: o.id,
+          title: `Наряд №${o.number} возвращён на доработку`,
+          text: o.check.issues?.join(' ') || 'Дополните отчёт.',
+          to: o.members || [o.worker],
+          kind: 'rework',
+        });
     } else if (b.action === 'decision') {
       requireRoles(u, ['master']);
       if (!['review', 'rework'].includes(o.status)) throw new Error('Наряд ещё не направлен на проверку');
@@ -399,6 +512,14 @@ export async function POST(req: Request) {
         o.status = 'rework';
         o.returned = true;
         event = 'Мастер вернул на доработку: ' + b.reason;
+        pendingAlerts.push({
+          id: `decision:${o.id}:${now}`,
+          order: o.id,
+          title: `Наряд №${o.number}: мастер вернул на доработку`,
+          text: String(b.reason).slice(0, 300),
+          to: o.members || [o.worker],
+          kind: 'decision',
+        });
       } else {
         if (b.decision !== 'accept') throw new Error('Неизвестное решение');
         if (!b.reason?.trim()) throw new Error('Добавьте комментарий мастера');
@@ -408,7 +529,16 @@ export async function POST(req: Request) {
         o.masterComment = String(b.reason).slice(0, 2000);
         if (o.downtimeStarted && !o.downtimeEnded) o.downtimeEnded = now;
         o.downtime = equipmentDowntime(o);
+        if (o.check && o.masterScore !== o.check.score) o.check.masterOverride = true;
         event = 'Наряд принят мастером. ' + o.masterComment;
+        pendingAlerts.push({
+          id: `decision:${o.id}:${now}`,
+          order: o.id,
+          title: `Наряд №${o.number} закрыт. Ваша оценка: ${o.masterScore}/5`,
+          text: o.masterComment,
+          to: o.members || [o.worker],
+          kind: 'decision',
+        });
       }
     } else if (b.action === 'downtime') {
       requireRoles(u, ['master']);
@@ -427,7 +557,9 @@ export async function POST(req: Request) {
       }
     } else if (b.action === 'edit') {
       requireRoles(u, ['master']);
-      if (closed(o)) throw new Error('Наряд уже завершён');
+      // Отклонённый наряд можно переназначить другому исполнителю (ТЗ, раздел 4).
+      const reassignRejected = o.status === 'rejected' && b.worker && !b.cancel;
+      if (closed(o) && !reassignRejected) throw new Error('Наряд уже завершён');
       if (b.worker && b.worker !== o.worker) {
         const w = await get('users', b.worker);
         if (w?.role !== 'worker' || !w.onShift || w.disabled)
@@ -436,7 +568,20 @@ export async function POST(req: Request) {
         o.worker = w.id;
         o.members = [w.id];
         o.brigade = null;
-      }
+        if (o.status === 'rejected') {
+          o.status = 'issued';
+          delete o.acceptedAt; // время реакции нового исполнителя считается заново
+        }
+        pendingAlerts.push({
+          id: `assigned:${o.id}:${w.id}:${now}`,
+          order: o.id,
+          title: `${o.priority === 'emergency' ? 'АВАРИЙНЫЙ наряд' : 'Наряд'} №${o.number} назначен вам`,
+          text: o.title,
+          to: [w.id],
+          emergency: o.priority === 'emergency',
+          kind: 'new',
+        });
+      } else if (reassignRejected) throw new Error('Выберите другого исполнителя');
       if (b.priority) {
         if (!['emergency', 'high', 'normal', 'planned'].includes(b.priority))
           throw new Error('Неизвестный приоритет');
@@ -447,14 +592,19 @@ export async function POST(req: Request) {
         if (!b.reason?.trim()) throw new Error('Укажите причину отмены');
         o.status = 'cancelled';
       }
-      event = b.cancel ? 'Отменён: ' + b.reason : 'Изменены назначение / приоритет';
+      event = b.cancel
+        ? 'Отменён: ' + b.reason
+        : reassignRejected
+          ? `Переназначен после отказа: ${who(o.worker)}`
+          : 'Изменены назначение / приоритет';
     } else throw new Error('Неизвестное действие');
     o.history.push({ at: now, actor: u.id, text: event, requestId: b.requestId || null });
+    o.updatedAt = now;
     await save('orders', o, v);
-    if (['report', 'transition'].includes(b.action))
-      await notifyUsers([o.master], new URL(req.url).origin).catch(() => {});
-    if (['decision', 'edit'].includes(b.action))
-      await notifyUsers(o.members || [o.worker], new URL(req.url).origin).catch(() => {});
+    for (const alert of pendingAlerts) await storeAlert(alert).catch((e) => console.error('alert:', e));
+    // Push получают только адресаты новых уведомлений: service worker покажет их текст.
+    const recipients = [...new Set(pendingAlerts.flatMap((a) => a.to))];
+    if (recipients.length) await notifyUsers(recipients, new URL(req.url).origin).catch(() => {});
     return json({ ok: true, id: o.id });
   } catch (e: any) {
     console.error(e);

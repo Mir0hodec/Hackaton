@@ -52,10 +52,62 @@ export function evaluate(o: any, report: any, duplicate = false) {
     note: 'Автоматическая проверка по правилам. Смысловой анализ текста и содержимого фото внешней ИИ-моделью пока не подключён. Окончательное решение принимает мастер.',
   };
 }
+/** Число отказов от нарядов без уважительной причины (оценку причины ставит мастер). */
+export function unjustifiedRejections(orders: any[], belongsWorker: (id: string) => boolean) {
+  let count = 0;
+  for (const o of orders) {
+    if (o.rejections?.length)
+      count += o.rejections.filter((r: any) => r.unjustified === true && belongsWorker(r.worker)).length;
+    else if (o.status === 'rejected' && o.rejectionUnjustified === true && belongsWorker(o.worker)) count++;
+  }
+  return count;
+}
+
+const emptyRating = {
+  score: 0,
+  count: 0,
+  quality: 0,
+  onTime: 0,
+  returns: 0,
+  repeatCount: 0,
+  volume: 0,
+  penalty: 0,
+  parts: { quality: 0, onTime: 0, returns: 0, volume: 0, penalty: 0 },
+};
+
+// Веса рейтинга (сумма 100): качество 50, сроки 30, без доработок и повторов 15, объём 5.
+// Штраф −2 балла за каждый отказ без уважительной причины, не более −10.
+export const ratingWeights = {
+  quality: 50,
+  onTime: 30,
+  returns: 15,
+  volume: 5,
+  penaltyPerRejection: 2,
+  maxPenalty: 10,
+};
+
 export function rating(orders: any[], id: string) {
-  const belongs = (o: any) => o.worker === id || o.members?.includes(id);
+  return ratingBy(
+    orders,
+    (o: any) => o.worker === id || o.members?.includes(id),
+    (w) => w === id,
+  );
+}
+
+/** Рейтинг бригады: те же составляющие по всем нарядам её участников. */
+export function brigadeRating(orders: any[], users: any[], brigade: number) {
+  const members = new Set(users.filter((u) => u.role === 'worker' && u.brigade === brigade).map((u) => u.id));
+  return ratingBy(
+    orders,
+    (o: any) => members.has(o.worker) || o.members?.some((m: string) => members.has(m)),
+    (w) => members.has(w),
+  );
+}
+
+function ratingBy(orders: any[], belongs: (o: any) => boolean, belongsWorker: (id: string) => boolean) {
   const a = orders.filter((o) => belongs(o) && o.status === 'closed');
-  if (!a.length) return { score: 0, count: 0, quality: 0, onTime: 0, returns: 0, repeatCount: 0, volume: 0 };
+  const penalty = unjustifiedRejections(orders, belongsWorker);
+  if (!a.length) return { ...emptyRating, penalty };
   const quality = a.reduce((s, o) => s + (o.masterScore ?? o.check?.score ?? 4), 0) / a.length;
   const onTime = a.filter((o) => Date.parse(o.finished || o.due) <= Date.parse(o.due)).length / a.length;
   const repeated = (o: any) =>
@@ -72,19 +124,18 @@ export function rating(orders: any[], id: string) {
   const repeatCount = a.filter(repeated).length;
   const returns = a.filter((o) => o.returned || repeated(o)).length / a.length;
   const volume = a.reduce((s, o) => s + (Number(o.complexity) || 1), 0);
-  const penalty = orders.filter(
-    (o) => belongs(o) && o.status === 'rejected' && o.rejectionUnjustified === true,
-  ).length;
+  const w = ratingWeights;
+  const parts = {
+    quality: (quality / 5) * w.quality,
+    onTime: onTime * w.onTime,
+    returns: (1 - returns) * w.returns,
+    volume: Math.min(volume / 30, 1) * w.volume,
+    penalty: -Math.min(penalty * w.penaltyPerRejection, w.maxPenalty),
+  };
   return {
     score: Math.max(
       0,
-      Math.round(
-        (quality / 5) * 50 +
-          onTime * 30 +
-          (1 - returns) * 15 +
-          Math.min(volume / 30, 1) * 5 -
-          Math.min(penalty * 2, 10),
-      ),
+      Math.round(parts.quality + parts.onTime + parts.returns + parts.volume + parts.penalty),
     ),
     count: a.length,
     quality,
@@ -92,5 +143,20 @@ export function rating(orders: any[], id: string) {
     returns,
     repeatCount,
     volume,
+    penalty,
+    parts,
   };
 }
+
+/** Часовой пояс предприятия для текстов уведомлений, которые формирует сервер. */
+export const TZ = 'Asia/Qostanay';
+export const formatServerTime = (iso: string) =>
+  new Date(iso).toLocaleString('ru-RU', {
+    timeZone: TZ,
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+export const formatServerClock = (iso: string) =>
+  new Date(iso).toLocaleTimeString('ru-RU', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });

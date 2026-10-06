@@ -1,0 +1,11 @@
+node_modules
+dist
+.wrangler
+.sites-runtime
+vendor
+build
+components/ui
+drizzle
+package-lock.json
+public/*.svg
+*.md

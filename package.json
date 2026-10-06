@@ -13,7 +13,9 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "db:local": "node scripts/local-db.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start:local": "node -e \"require('fs').copyFileSync('.dev.vars','dist/server/.dev.vars')\" && node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0 --port 4173",
+    "format": "prettier --write \"app/**/*.{ts,tsx,css}\" \"lib/**/*.{ts,mts}\" \"components/*.tsx\" \"db/*.ts\" \"scripts/*.mjs\" public/sw.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -54,6 +56,7 @@
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.4",
     "json-rpc-2.0": "1.7.1",
+    "prettier": "^3.9.9",
     "raw-body": "3.0.2",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",

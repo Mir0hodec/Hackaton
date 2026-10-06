@@ -2,6 +2,7 @@ import { workcardAction } from '../../../lib/workcards';
 import { checkDeadlines, storeAlert } from '../../../lib/deadlines';
 import { loadSettings, updateSettings } from '../../../lib/settings';
 import { recommendWorkers } from '../../../lib/recommend';
+import { importHistory, clearHistory, historyStatus } from '../../../lib/history-import';
 import { credentials, verifyPassword } from '../../../lib/password';
 import { pushKeys, subscribePush, removePush, notifyUsers } from '../../../lib/web-push';
 import { rateLimit } from '../../../lib/rate-limit';
@@ -28,6 +29,7 @@ import {
 import { evaluate, closed, formatServerTime } from '../../../lib/domain';
 import { hamming } from '../../../lib/photo-meta';
 export const dynamic = 'force-dynamic';
+const RECENT_MS = 3 * 86400000; // закрытые наряды за 3 дня остаются в оперативной ленте
 function json(data: any, status = 200, headers: any = {}) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
 }
@@ -44,6 +46,12 @@ export async function GET(req: Request) {
         accounts: (env as any).WORKSPACE_MODE === 'true' ? [] : users.map(safeUser),
       });
     // Лёгкий запрос service worker'а: текст последних уведомлений для показа push.
+    if (new URL(req.url).searchParams.get('view') === 'order') {
+      const o = await get('orders', new URL(req.url).searchParams.get('id') || '');
+      if (!o || (u.role === 'worker' && o.worker !== u.id && !o.members?.includes(u.id)))
+        return json({ error: 'Наряд не найден' }, 404);
+      return json({ order: o });
+    }
     if (new URL(req.url).searchParams.get('view') === 'notifications') {
       const items = (await list('alerts'))
         .filter((a) => a.to?.includes(u.id))
@@ -83,7 +91,14 @@ export async function GET(req: Request) {
       equipment,
       codes,
       materials,
-      orders: u.role === 'worker' ? all.filter((o) => o.worker === u.id || o.members?.includes(u.id)) : all,
+      // Телефоны получают только текущие и недавние наряды; история и отчёты — через /api/analytics.
+      orders: all.filter(
+        (o) =>
+          (u.role !== 'worker' || o.worker === u.id || o.members?.includes(u.id)) &&
+          (!closed(o) || Date.now() - Date.parse(o.updatedAt || o.closedAt || o.created) < RECENT_MS) &&
+          !(o.synthetic && closed(o)),
+      ),
+      history: u.role === 'admin' ? await historyStatus() : undefined,
       alerts,
       settings,
       demo: !!namespace(),
@@ -302,6 +317,14 @@ export async function POST(req: Request) {
         text: String(b.text || '').slice(0, 2000),
       });
       return json({ ...result, ranked: result.ranked.slice(0, 5) });
+    }
+    if (b.action === 'history-import') {
+      requireRoles(u, ['admin']);
+      return json({ ok: true, ...(await importHistory()) });
+    }
+    if (b.action === 'history-clear') {
+      requireRoles(u, ['admin']);
+      return json({ ok: true, ...(await clearHistory()) });
     }
     if (b.action === 'settings') {
       requireRoles(u, ['admin']);

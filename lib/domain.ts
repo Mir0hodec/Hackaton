@@ -176,6 +176,7 @@ function ratingBy(orders: any[], belongs: (o: any) => boolean, belongsWorker: (i
   const repeated = (o: any) =>
     orders.some(
       (next) =>
+        o.type === 'unplanned' &&
         next.id !== o.id &&
         next.equipment === o.equipment &&
         next.type === 'unplanned' &&

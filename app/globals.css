@@ -2331,3 +2331,239 @@ button.ai-candidate[aria-pressed='true'] {
 .feedback.improve h4 {
   color: var(--amber);
 }
+
+/* ===== Отчёты и аналитика ===== */
+/* Цвета серий: проверенная категориальная палитра (scripts/validate_palette.js), светлая и тёмная. */
+.viz-root {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+}
+:root[data-theme='dark'] .viz-root {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+}
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1.4rem;
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.kpi span {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.kpi strong {
+  font-size: 1.9rem;
+  line-height: 1.1;
+}
+.kpi small {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted);
+}
+.kpi.danger strong {
+  color: var(--red);
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin: 0.4rem 0 0.8rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.chart-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+.stack-bar {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  margin: 0.35rem 0 0.2rem;
+}
+.stack-bar.thin {
+  height: 10px;
+  flex: 1;
+}
+.stack-bar .seg {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+}
+.stack-bar .seg:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.stack-bar .seg:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.stack-bar .seg:only-child {
+  border-radius: 4px;
+}
+[data-tip] {
+  position: relative;
+}
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  z-index: 5;
+  pointer-events: none;
+}
+.rating-row {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.rating-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  color: var(--text);
+  min-height: 44px;
+}
+.rating-name {
+  display: grid;
+  flex: 1;
+}
+.rating-name small {
+  color: var(--muted);
+}
+.rating-score {
+  font-size: 1.3rem;
+}
+.rating-explain {
+  background: var(--raised);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  line-height: 1.45;
+}
+.downtime-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 2fr auto;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 0.45rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+}
+.data-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+.data-table tr.warn td {
+  color: var(--amber);
+}
+.insight-list {
+  display: grid;
+  gap: 0.8rem;
+}
+.insight-card {
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--grey);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  background: var(--surface);
+}
+.insight-card.sev-high {
+  border-left-color: var(--red);
+}
+.insight-card.sev-medium {
+  border-left-color: var(--amber);
+}
+.insight-card header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.insight-card header h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+.insight-card .sev {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.insight-card.sev-high .sev,
+.insight-card.sev-high header svg {
+  color: var(--red);
+}
+.insight-card p {
+  margin: 0.4rem 0 0;
+  line-height: 1.45;
+}
+.insight-card .recommendation {
+  color: var(--text);
+}
+.ai-recommendations {
+  line-height: 1.5;
+}
+.deviation {
+  display: flex;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  margin: 0.3rem 0;
+}
+.spaced {
+  margin-top: 1.4rem;
+}
+.print-only-visible {
+  display: none;
+}
+@media print {
+  .print-only-visible {
+    display: block;
+  }
+  .reports .panel,
+  .kpi {
+    break-inside: avoid;
+  }
+  .reports .detail-grid {
+    display: block;
+  }
+}

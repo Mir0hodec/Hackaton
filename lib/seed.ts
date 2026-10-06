@@ -1,144 +1,57 @@
+// Начальное наполнение базы. Справочники и история берутся из генератора lib/history-seed.ts.
+// В рабочей смене (WORKSPACE_MODE) история не создаётся автоматически: её загружает администратор
+// кнопкой «Загрузить демонстрационную историю» (lib/history-import.ts), и её можно удалить.
+import { catalogs, generateHistory, historyMasters, historyWorkers } from './history-seed';
+
 export function makeSeed() {
+  const { areas, equipment, codes, materials } = catalogs();
+  // В демо-песочнице вход по ПИН-коду; в рабочей смене пользователи задаются INITIAL_USERS.
   const users: any[] = [
-    { id: 'm1', role: 'master', name: 'Алексей Соколов', spec: 'Мастер смены', pin: '4101' },
-    { id: 'm2', role: 'master', name: 'Ерлан Ахметов', spec: 'Мастер смены', pin: '4102' },
-    { id: 'lead', role: 'manager', name: 'Виктор Орлов', spec: 'Начальник участка', pin: '4301' },
+    ...historyMasters.map((m, i) => ({ ...m, pin: String(4101 + i) })),
+    { id: 'manager', role: 'manager', name: 'Виктор Орлов', spec: 'Начальник участка', pin: '4301' },
     { id: 'admin', role: 'admin', name: 'Администратор', spec: 'Системный администратор', pin: '4401' },
+    ...historyWorkers.map((w, i) => ({ ...w, onShift: i < 12, pin: String(4201 + i) })),
   ];
-  const names = [
-    'Иван Петров',
-    'Сергей Ким',
-    'Андрей Волков',
-    'Марат Исаев',
-    'Олег Смирнов',
-    'Руслан Омаров',
-    'Дмитрий Белов',
-    'Николай Фёдоров',
-    'Арман Алиев',
-    'Павел Козлов',
-    'Вадим Титов',
-    'Данияр Сериков',
-    'Игорь Морозов',
-    'Александр Егоров',
-    'Тимур Каримов',
-  ];
-  names.forEach((name, i) =>
-    users.push({
-      id: 'w' + (i + 1),
-      role: 'worker',
-      name,
-      spec: ['Слесарь', 'Электрик', 'Сварщик'][i % 3],
-      grade: 4 + (i % 3),
-      brigade: 1 + Math.floor(i / 5),
-      onShift: i < 12,
-      pin: String(4201 + i),
-    }),
-  );
-  const areas = ['Дробление', 'Обогащение', 'Ремонтно-механический цех', 'Транспортный участок'].map(
-    (name, i) => ({ id: 'a' + i, name }),
-  );
-  const equipment = Array.from({ length: 25 }, (_, i) => ({
-    id: 'e' + i,
-    name:
-      i === 0
-        ? 'Насос Н-12'
-        : i === 1
-          ? 'Конвейер К-3'
-          : `${['Дробилка', 'Насос', 'Конвейер', 'Компрессор', 'Электродвигатель'][i % 5]} ${i + 1}`,
-    area: 'a' + (i % 4),
-    inventory: 'КМ-' + String(1000 + i),
-    critical: i < 5,
-  }));
-  equipment[0].area = 'a1';
-  equipment[1].area = 'a0';
-  const codes = Array.from({ length: 20 }, (_, i) => ({
-    id: ['М', 'Э', 'Г', 'П', 'С'][Math.floor(i / 4)] + '-' + String((i % 4) + 1).padStart(2, '0'),
-    name: ['Износ уплотнения', 'Повреждение подшипника', 'Ослабление крепления', 'Нарушение соединения'][
-      i % 4
-    ],
-    norm: 60 + (i % 4) * 30,
-  }));
-  const materials = Array.from({ length: 40 }, (_, i) => ({
-    id: 'mat' + i,
-    name:
-      ['Подшипник', 'Уплотнительное кольцо', 'Смазка', 'Болт М12', 'Кабель', 'Прокладка', 'Ремень', 'Фильтр'][
-        i % 8
-      ] +
-      ' ' +
-      (1 + Math.floor(i / 8)),
-    unit: ['шт.', 'шт.', 'кг', 'шт.', 'м', 'шт.', 'шт.', 'шт.'][i % 8],
-    norm: [2, 2, 1, 8, 10, 2, 1, 1][i % 8],
-  }));
   const now = Date.now();
-  const orders: any[] = [];
-  for (let i = 0; i < 520; i++) {
-    const created = now - (1 + (i % 90)) * 86400000 - (i % 10) * 3600000;
-    const eq = i % 4 === 0 ? 'e1' : 'e' + (i % 25);
-    const worker = 'w' + (1 + (i % 15));
-    const late = i % 6 === 0;
-    orders.push({
-      id: 'h' + i,
-      number: 1000 + i,
-      type: i % 3 ? 'unplanned' : 'planned',
-      title:
-        i % 4 === 0
-          ? 'Замена подшипника привода'
-          : ['Осмотр и обслуживание', 'Устранение вибрации', 'Замена уплотнения'][i % 3],
-      description: 'Тестовая история ремонта оборудования',
-      equipment: eq,
-      area: equipment.find((e) => e.id === eq)!.area,
-      worker,
-      master: 'm1',
-      priority: i % 3 ? 'normal' : 'planned',
-      status: 'closed',
-      created: new Date(created).toISOString(),
-      due: new Date(created + 7200000).toISOString(),
-      started: new Date(created + 600000).toISOString(),
-      finished: new Date(created + (late ? 9600000 : 4800000)).toISOString(),
-      closedAt: new Date(created + 10000000).toISOString(),
-      norm: 120,
-      returned: worker === 'w3' && i % 2 === 0,
-      report: {
-        works: 'Проведена замена и контрольный запуск.',
-        code: i % 4 === 0 ? 'М-02' : 'М-01',
-        materials: [{ ...materials[i % 40], qty: i % 23 === 0 ? 20 : 1 }],
-        photos: [],
-      },
-      check: { score: worker === 'w3' ? 3 : 4 + (i % 2), mode: 'seed', issues: [], verdict: 'accepted' },
-      history: [{ at: new Date(created).toISOString(), actor: 'm1', text: 'Тестовый исторический наряд' }],
-      photos: [],
-      downtime: 60 + (i % 180),
-    });
-  }
-  const demo = [
-    ['Течь масла на насосе', 'e0', 'w1', 'emergency', 'issued', 45],
-    ['Проверить привод конвейера', 'e1', 'w2', 'high', 'working', -25],
-    ['Заменить защитный кожух', 'e4', 'w3', 'normal', 'queued', 150],
-    ['Плановый осмотр дробилки', 'e5', 'w4', 'planned', 'accepted', 240],
+  const orders: any[] = generateHistory(now);
+  // Несколько текущих нарядов, чтобы демо-смена не была пустой.
+  const live: [string, string, string, string, string, number, string][] = [
+    ['Течь масла на насосе', 'e0', 'worker1', 'emergency', 'issued', 45, 'Г-01'],
+    ['Шум подшипника привода конвейера', 'e1', 'hw04', 'high', 'working', -25, 'М-02'],
+    ['Заменить защитный кожух', 'e5', 'hw08', 'normal', 'queued', 150, 'М-03'],
+    ['Плановый осмотр дробилки', 'e2', 'hw06', 'planned', 'accepted', 240, 'С-01'],
   ];
-  demo.forEach((d, i) =>
+  live.forEach(([title, eq, worker, priority, status, dueMin], i) => {
+    const e = equipment.find((x) => x.id === eq)!;
+    const created = new Date(now - 3600000).toISOString();
     orders.push({
-      id: 'demo' + i,
+      id: 'live' + i,
       number: 2001 + i,
-      title: d[0],
+      title,
       description:
         i === 0
           ? 'Обнаружена течь масла в районе уплотнения. Устранить неисправность и проверить герметичность.'
           : 'Выполнить осмотр и устранить выявленную неисправность.',
-      equipment: d[1],
-      area: equipment.find((e) => e.id === d[1])!.area,
-      worker: d[2],
-      master: 'm1',
-      priority: d[3],
-      type: i === 3 ? 'planned' : 'unplanned',
-      status: d[4],
-      created: new Date(now - 3600000).toISOString(),
-      due: new Date(now + Number(d[5]) * 60000).toISOString(),
-      started: i === 1 ? new Date(now - 3000000).toISOString() : null,
+      equipment: eq,
+      area: e.area,
+      worker,
+      members: [worker],
+      master: 'master',
+      priority,
+      type: priority === 'planned' ? 'planned' : 'unplanned',
+      status,
+      created,
+      updatedAt: created,
+      acceptedAt: status === 'issued' ? undefined : created,
+      due: new Date(now + dueMin * 60000).toISOString(),
+      started: status === 'working' ? new Date(now - 3000000).toISOString() : null,
+      activeSince: status === 'working' ? new Date(now - 3000000).toISOString() : null,
+      activeMs: 0,
       norm: 90,
+      complexity: 1,
       photos: [],
-      history: [{ at: new Date(now - 3600000).toISOString(), actor: 'm1', text: 'Наряд выдан' }],
-    }),
-  );
+      history: [{ at: created, actor: 'master', text: 'Наряд выдан' }],
+    });
+  });
   return { users, areas, equipment, codes, materials, orders };
 }

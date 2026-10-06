@@ -21,12 +21,12 @@ def login(id,pin):
     assert status==200,d
     return h['Set-Cookie'].split(';')[0]
 assert call()[1]['user'] is None
-assert call({'action':'login','id':'m1','pin':'9999'})[0]==401
-master=login('m1','4101');worker=login('w1','4201');manager=login('lead','4301')
+assert call({'action':'login','id':'master','pin':'9999'})[0]==401
+master=login('master','4101');worker=login('worker1','4201');manager=login('manager','4301')
 status,data,_=call(cookie=master)
 assert len(data['orders'])>=524 and len(data['equipment'])==25
 assert len(data['materials'])==40 and len(data['codes'])==20
-payload={'action':'create','data':{'title':'Проверка сквозного сценария','description':'Тест API, только локальная база','equipment':'e0','worker':'w1','priority':'emergency','type':'unplanned','due':'2026-12-31T12:00:00Z','photos':[]}}
+payload={'action':'create','data':{'title':'Проверка сквозного сценария','description':'Тест API, только локальная база','equipment':'e0','worker':'worker1','priority':'emergency','type':'unplanned','due':'2026-12-31T12:00:00Z','photos':[]}}
 assert call(payload,worker)[0]!=200
 _,d,_=call(payload,master);id=d['id']
 assert call({'action':'decision','id':id,'decision':'accept','reason':'Рано'},master)[0]!=200
@@ -51,7 +51,7 @@ assert call({'action':'decision','id':id,'decision':'accept','reason':'Недо�
 st,d,_=call({'action':'decision','id':id,'decision':'accept','reason':'Проверено мастером в локальном тесте','score':5},master);assert st==200,d
 state=next(o for o in call(cookie=master)[1]['orders'] if o['id']==id)
 assert state['status']=='closed' and state['masterScore']==5 and len(state['history'])==6
-assert all(o['worker']=='w1' for o in call(cookie=worker)[1]['orders'])
+assert all(o['worker']=='worker1' for o in call(cookie=worker)[1]['orders'])
 assert call({'action':'transition','id':id,'status':'working'},worker)[0]!=200
 assert call({'action':'transition','id':'demo1','status':'paused','reason':'Недопустимо'},worker)[0]==403
 call({'action':'logout'},worker)

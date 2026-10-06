@@ -84,27 +84,64 @@ function zip(files: Record<string, string>) {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 }
-export function createXlsx(rows: any[][]) {
-  const col = (i: number) => {
-    let s = '';
-    for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s;
-    return s;
-  };
-  const sheet = rows
+const col = (i: number) => {
+  let s = '';
+  for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s;
+  return s;
+};
+
+function sheetXml(rows: any[][]) {
+  const body = rows
     .map(
       (row, r) =>
         `<row r="${r + 1}">${row.map((v, c) => (typeof v === 'number' && Number.isFinite(v) ? `<c r="${col(c)}${r + 1}"><v>${v}</v></c>` : `<c r="${col(c)}${r + 1}" t="inlineStr"><is><t xml:space="preserve">${xml(v)}</t></is></c>`)).join('')}</row>`,
     )
     .join('');
-  return zip({
+  const width = Math.max(1, ...rows.map((r) => r.length));
+  return `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="14" customWidth="1"/><col min="2" max="4" width="34" customWidth="1"/><col min="5" max="${Math.max(5, width)}" width="20" customWidth="1"/></cols><sheetData>${body}</sheetData>${rows.length > 1 ? `<autoFilter ref="A1:${col(width - 1)}${rows.length}"/>` : ''}</worksheet>`;
+}
+
+/** Книга Excel из нескольких листов (имена листов — до 31 символа, без []:*?/\). */
+export function createXlsxBook(sheets: { name: string; rows: any[][] }[]) {
+  const list = sheets.filter((s) => s.rows.length);
+  const forbidden = new Set(['[', ']', ':', '*', '?', '/', '\\']);
+  const names = list.map(
+    (s, i) =>
+      [...s.name]
+        .map((ch) => (forbidden.has(ch) ? ' ' : ch))
+        .join('')
+        .slice(0, 31) || `Лист${i + 1}`,
+  );
+  const files: Record<string, string> = {
     '[Content_Types].xml':
-      '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+      '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      list
+        .map(
+          (_, i) =>
+            `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,
+        )
+        .join('') +
+      '</Types>',
     '_rels/.rels':
       '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
     'xl/workbook.xml':
-      '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Наряды" sheetId="1" r:id="rId1"/></sheets></workbook>',
+      '<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+      names.map((n, i) => `<sheet name="${xml(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') +
+      '</sheets></workbook>',
     'xl/_rels/workbook.xml.rels':
-      '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
-    'xl/worksheets/sheet1.xml': `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="12" customWidth="1"/><col min="2" max="4" width="34" customWidth="1"/><col min="5" max="9" width="22" customWidth="1"/></cols><sheetData>${sheet}</sheetData><autoFilter ref="A1:${col(rows[0].length - 1)}${rows.length}"/></worksheet>`,
-  });
+      '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      list
+        .map(
+          (_, i) =>
+            `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`,
+        )
+        .join('') +
+      '</Relationships>',
+  };
+  list.forEach((s, i) => (files[`xl/worksheets/sheet${i + 1}.xml`] = sheetXml(s.rows)));
+  return zip(files);
+}
+
+export function createXlsx(rows: any[][]) {
+  return createXlsxBook([{ name: 'Наряды', rows }]);
 }

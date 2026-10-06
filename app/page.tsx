@@ -34,8 +34,8 @@ import {
 } from 'lucide-react';
 import { roles, statuses, priorities, closed, overdue, rating } from '../lib/domain';
 import { WorkProfile, WorkSummary, currentWork, workRating } from '../components/work-tracking';
-import { insights } from '../lib/insights';
-import { createXlsx } from '../lib/xlsx';
+import { ReportsPage, ManagerDashboard, MyRating, useAnalytics } from '../components/reports';
+import { HistoryPanel, SettingsPanel } from '../components/admin-panels';
 import { activeMinutes, equipmentDowntime } from '../lib/timing';
 import { putLocal, readLocal, removeLocal } from '../lib/offline';
 import { shiftOf } from '../lib/shift';
@@ -194,7 +194,9 @@ export default function App() {
     orders = data?.orders || [],
     users = data?.users || [],
     workers = users.filter((u: any) => u.role === 'worker' && (user?.role !== 'worker' || u.id === user.id));
-  const order = orders.find((o: any) => o.id === selected);
+  const [extraOrder, setExtraOrder] = useState<any>(null);
+  const order =
+    orders.find((o: any) => o.id === selected) || (extraOrder?.id === selected ? extraOrder : null);
   const active = orders.filter((o: any) => !closed(o));
   const late = active.filter(overdue);
   const shift = shiftOf(Date.now());
@@ -314,6 +316,15 @@ export default function App() {
           .catch(() => {});
       });
   }, [alerts.map((a: any) => a.id).join(','), user?.id]);
+  // Наряд из истории (его нет в оперативной ленте) загружается по ссылке отдельно.
+  useEffect(() => {
+    if (!selected || !user || orders.some((o: any) => o.id === selected) || extraOrder?.id === selected)
+      return;
+    fetch(`${endpoint()}?view=order&id=${encodeURIComponent(selected)}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: any) => d?.order && setExtraOrder(d.order))
+      .catch(() => {});
+  }, [selected, user?.id]);
   // Звук разблокируется первым касанием; переход к наряду из системного уведомления.
   useEffect(() => {
     const unlock = () => unlockAudio();
@@ -706,6 +717,15 @@ export default function App() {
     [quickEmergency, setQuickEmergency] = useState(true),
     [quickPicked, setQuickPicked] = useState(false);
   const canRecommend = user?.role === 'master';
+  const analyticsApi = demo ? '/api/demo-analytics' : '/api/analytics';
+  // Границы округлены до часа, чтобы запрос не менялся при каждой перерисовке.
+  const hourNow = Math.floor(Date.now() / 3600000) * 3600000;
+  const monthRatings = useAnalytics(
+    analyticsApi,
+    { from: new Date(hourNow - 30 * 86400000).toISOString(), to: new Date(hourNow + 3600000).toISOString() },
+    !!user && user.role !== 'worker' && (tab === 'people' || modal === 'staff'),
+  );
+  const ratingOf = (id: string) => monthRatings.data?.ratings?.workers?.find((w: any) => w.id === id);
   const createRec = useRecommendation(
     endpoint(),
     formEq,
@@ -839,36 +859,6 @@ export default function App() {
     setPhotos(value.photos || []);
     setMaterialRows(value.materials || []);
     setModal('report');
-  }
-  function exportCsv(rows: any[]) {
-    const header = [
-      'Номер',
-      'Задание',
-      'Оборудование',
-      'Исполнитель',
-      'Статус',
-      'Срок',
-      'Оценка',
-      'Простой, мин',
-      'Сложность',
-    ];
-    const cells = rows.map((o) => [
-      o.number,
-      o.title,
-      eqName(o.equipment),
-      userName(o.worker),
-      statuses[o.status],
-      fmt(o.due),
-      o.masterScore ?? o.check?.score ?? '',
-      equipmentDowntime(o),
-      o.complexity || 1,
-    ]);
-    const url = URL.createObjectURL(createXlsx([header, ...cells]));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'NaryadAI-report.xlsx';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   if (!data && !error)
@@ -1023,16 +1013,6 @@ export default function App() {
         </div>
       </main>
     );
-  const periodOrders = orders.filter(
-    (o: any) =>
-      (fromDate
-        ? Date.parse(o.created) >= Date.parse(fromDate)
-        : Date.parse(o.created) > Date.now() - Number(period) * 86400000) &&
-      (!toDate || Date.parse(o.created) < Date.parse(toDate) + 86400000) &&
-      (!equipmentFilter || o.equipment === equipmentFilter) &&
-      (!area || o.area === area) &&
-      (!workerFilter || o.worker === workerFilter || o.members?.includes(workerFilter)),
-  );
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -1484,12 +1464,12 @@ export default function App() {
                   </button>
                 )}
               </div>
-              {user.role !== 'worker' && (
+              {['master', 'admin'].includes(user.role) && (
                 <div className="shift-heading">
                   <Clock size={16} /> {shift.name}
                 </div>
               )}
-              {user.role !== 'worker' ? (
+              {user.role === 'manager' ? null : user.role !== 'worker' ? (
                 <div className="metrics shift-metrics">
                   <button
                     onClick={() => {
@@ -1599,6 +1579,13 @@ export default function App() {
                   </button>
                 </div>
               )}
+              {user.role === 'manager' && (
+                <ManagerDashboard
+                  api={analyticsApi}
+                  live={{ active: active.length, late: late.length, downtime: shiftStats.downtime }}
+                  onOpenReports={() => setTab('reports')}
+                />
+              )}
               {user.role === 'worker' && (
                 <section className="panel">
                   <WorkProfile
@@ -1612,6 +1599,7 @@ export default function App() {
                   />
                 </section>
               )}
+              {user.role === 'worker' && <MyRating api={analyticsApi} />}
               <div className="dashboard-grid">
                 <section>
                   <div className="section-title">
@@ -1914,7 +1902,7 @@ export default function App() {
                       </div>
                       <div>
                         <dt>Рейтинг</dt>
-                        <dd>{rating(orders, w.id).score}/100</dd>
+                        <dd>{ratingOf(w.id) ? `${ratingOf(w.id).score}/100` : '—'}</dd>
                       </div>
                     </div>
                     <WorkSummary
@@ -1961,79 +1949,7 @@ export default function App() {
               </div>
             </>
           ) : tab === 'reports' ? (
-            <>
-              <div className="page-heading">
-                <div>
-                  <div className="eyebrow">РЕЗУЛЬТАТЫ И ЗАКОНОМЕРНОСТИ</div>
-                  <h1>Отчёты</h1>
-                </div>
-                <div className="button-row">
-                  <button onClick={() => exportCsv(periodOrders)}>
-                    <Download size={18} />
-                    Excel .xlsx
-                  </button>
-                  <button onClick={() => window.print()}>
-                    <FileText size={18} />
-                    Печать / PDF
-                  </button>
-                </div>
-              </div>
-              <div className="filters">
-                <select aria-label="Период" value={period} onChange={(e) => setPeriod(e.target.value)}>
-                  <option value="0.5">Последние 12 часов</option>
-                  <option value="1">Сутки</option>
-                  <option value="7">Неделя</option>
-                  <option value="30">Месяц</option>
-                  <option value="90">3 месяца</option>
-                  <option value="365">Год</option>
-                </select>
-                <select aria-label="Участок" value={area} onChange={(e) => setArea(e.target.value)}>
-                  <option value="">Все участки</option>
-                  {data.areas.map((a: any) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-                <label>
-                  С даты
-                  <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                </label>
-                <label>
-                  По дату
-                  <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-                </label>
-                <select
-                  aria-label="Оборудование"
-                  value={equipmentFilter}
-                  onChange={(e) => setEquipmentFilter(e.target.value)}
-                >
-                  <option value="">Всё оборудование</option>
-                  {data.equipment.map((eq: any) => (
-                    <option key={eq.id} value={eq.id}>
-                      {eq.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <section className="panel">
-                <h2>Закономерности и рекомендации</h2>
-                <p className="muted small">
-                  Расчёт по выбранному периоду. Статистические сигналы требуют проверки мастером.
-                </p>
-                {insights(periodOrders, data.equipment).map((finding: any) => (
-                  <article className="insight" key={finding.title}>
-                    <h3>{finding.title}</h3>
-                    <p>{finding.detail}</p>
-                    <p className="muted">{finding.recommendation}</p>
-                  </article>
-                ))}
-                {!insights(periodOrders, data.equipment).length && (
-                  <p>Устойчивых сигналов пока не выявлено. При небольшой истории выводы ограничены.</p>
-                )}
-              </section>
-              <ReportView orders={periodOrders} workers={workers} equipment={data.equipment} open={open} />
-            </>
+            <ReportsPage api={analyticsApi} data={data} workers={workers} />
           ) : tab === 'catalog' ? (
             <>
               <div className="page-heading">
@@ -2042,6 +1958,10 @@ export default function App() {
                   <h1>Справочники</h1>
                 </div>
               </div>
+              {user.role === 'admin' && (
+                <SettingsPanel settings={data.settings} busy={busy} onAction={action} />
+              )}
+              {user.role === 'admin' && <HistoryPanel status={data.history} busy={busy} onAction={action} />}
               {user.role === 'admin' && (
                 <section className="panel">
                   <div className="section-title">
@@ -2297,7 +2217,7 @@ export default function App() {
                 (o: any) => o.status === 'closed' && (o.worker === staff.id || o.members?.includes(staff.id)),
               ).length
             }{' '}
-            · Рейтинг: {rating(orders, staff.id).score}/100
+            · Рейтинг за 30 дней: {ratingOf(staff.id) ? `${ratingOf(staff.id).score}/100` : '—'}
           </p>
           <h3>Выполненные наряды</h3>
           <div className="cards">
@@ -2621,7 +2541,14 @@ export default function App() {
           <div className="demo-roles">
             {Object.entries(roles).map(([r, title]: any) => {
               const Icon = roleIcons[r];
-              const id = r === 'master' ? 'm1' : r === 'worker' ? 'w1' : r === 'manager' ? 'lead' : 'admin';
+              const id =
+                r === 'master'
+                  ? 'master'
+                  : r === 'worker'
+                    ? 'worker1'
+                    : r === 'manager'
+                      ? 'manager'
+                      : 'admin';
               return (
                 <button
                   aria-pressed={(roleChoice || user.role) === r}
@@ -3253,130 +3180,6 @@ export default function App() {
     </div>
   );
 }
-function ReportView({ orders, workers, equipment, open }: any) {
-  const done = orders.filter((o: any) => o.status === 'closed');
-  const late = orders.filter(overdue);
-  const ranks = workers
-    .map((w: any) => ({ ...w, ...rating(orders, w.id) }))
-    .filter((w: any) => w.count)
-    .sort((a: any, b: any) => b.score - a.score);
-  const top = equipment
-    .map((e: any) => {
-      const a = orders.filter((o: any) => o.equipment === e.id && o.type === 'unplanned');
-      return {
-        ...e,
-        count: a.length,
-        down: a.reduce((s: number, o: any) => s + (o.downtime || 0), 0),
-        bearing: a.filter((o: any) => o.report?.code === 'М-02').length,
-      };
-    })
-    .filter((e: any) => e.count)
-    .sort((a: any, b: any) => b.count - a.count)
-    .slice(0, 5);
-  const excessive = orders.filter((o: any) => o.report?.materials?.some((m: any) => m.qty > m.norm));
-  return (
-    <>
-      <div className="metrics">
-        <div>
-          <span>Выдано за период</span>
-          <strong>{orders.length}</strong>
-        </div>
-        <div>
-          <span>Закрыто</span>
-          <strong>{done.length}</strong>
-        </div>
-        <div>
-          <span>Просрочено сейчас</span>
-          <strong>{late.length}</strong>
-        </div>
-      </div>
-      <section className="panel">
-        <h2>Сводка периода</h2>
-        <p className="description">
-          За выбранный период выдано {orders.length} нарядов, закрыто {done.length}. На проверке мастера —{' '}
-          {orders.filter((o: any) => o.status === 'review').length}, отклонено —{' '}
-          {orders.filter((o: any) => o.status === 'rejected').length}. Суммарный зафиксированный простой:{' '}
-          {Math.round(done.reduce((s: number, o: any) => s + (o.downtime || 0), 0) / 60)} ч.
-        </p>
-        <small className="muted">
-          Сводка рассчитана по данным, без генеративной модели. Времена простоя в исходной истории — тестовые.
-        </small>
-      </section>
-      <div className="detail-grid">
-        <section className="panel">
-          <h2>Рейтинг исполнителей</h2>
-          <p className="muted small">
-            Качество — 50%, сроки — 30%, отсутствие доработок — 15%, объём с учётом сложности — 5%. Повтор той
-            же неисправности за 7 дней учитывается как доработка.
-          </p>
-          {ranks.map((w: any, i: number) => (
-            <div className="rank-row" key={w.id}>
-              <span className="rank-number">{String(i + 1).padStart(2, '0')}</span>
-              <div>
-                <strong>{w.name}</strong>
-                <small>
-                  {w.count} нарядов · В срок {Math.round(w.onTime * 100)}% · Качество {w.quality.toFixed(1)}/5
-                  · Повторов {w.repeatCount}
-                </small>
-                <div className="bar">
-                  <i style={{ width: w.score + '%' }} />
-                </div>
-              </div>
-              <b>{w.score}</b>
-            </div>
-          ))}
-          {!ranks.length && <p className="muted">За этот период нет закрытых нарядов.</p>}
-        </section>
-        <section className="panel">
-          <h2>Проблемное оборудование</h2>
-          {top.map((e: any) => (
-            <div className="equipment-report" key={e.id}>
-              <div className="section-title">
-                <strong>{e.name}</strong>
-                <span className="badge danger">{e.count} ремонтов</span>
-              </div>
-              <div className="bar">
-                <i style={{ width: (e.count / (top[0]?.count || 1)) * 100 + '%' }} />
-              </div>
-              <p className="muted small">
-                Простой: {(e.down / 60).toFixed(1)} ч.{' '}
-                {e.bearing > 2
-                  ? `${e.bearing} нарядов с шифром М-02. Проверьте соосность привода и причину повторных повреждений подшипника.`
-                  : 'Рекомендуется изучить историю ремонтов и причины остановок.'}
-              </p>
-            </div>
-          ))}
-        </section>
-      </div>
-      <section className="panel">
-        <div className="section-title">
-          <h2>Отклонения расхода материалов</h2>
-          <span className="count">{excessive.length}</span>
-        </div>
-        <p className="muted small">
-          Количество выше справочного ориентира — повод для проверки, а не доказательство нарушения.
-        </p>
-        {excessive.slice(0, 10).map((o: any) => (
-          <button className="alert-item" key={o.id} onClick={() => open(o)}>
-            <TriangleAlert />
-            <span>
-              <strong>
-                №{o.number} · {o.title}
-              </strong>
-              <small>
-                {o.report.materials
-                  .filter((m: any) => m.qty > m.norm)
-                  .map((m: any) => `${m.name}: ${m.qty} ${m.unit}, ориентир ${m.norm}`)
-                  .join('; ')}
-              </small>
-            </span>
-          </button>
-        ))}
-      </section>
-    </>
-  );
-}
-
 function Modal({ title, children, onClose }: any) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {

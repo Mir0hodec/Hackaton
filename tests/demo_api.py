@@ -23,7 +23,7 @@ a=call(cookie=first)[1];b=call(cookie=second)[1]
 assert len(a['orders'])==524 and a['user']['role']=='master'
 assert a['environmentId']!=b['environmentId']
 assert call(cookie=first,path='/api/service')[1]['user'] is None
-assert call({'action':'login','id':'m1','pin':'4101'},first)[0]==400
+assert call({'action':'login','id':'master','pin':'4101'},first)[0]==400
 request=str(uuid.uuid4())
 payload={'action':'create','requestId':request,'data':{'title':'Бригада: контроль изоляции','equipment':'e0','brigade':1,'priority':'normal','type':'planned','due':'2026-12-31T12:00:00Z','equipmentStopped':True}}
 item=ok(payload,first)['id'];ok(payload,first)
@@ -44,7 +44,7 @@ assert len(state['history'])==4 and state['activeSince'] is None
 ok({'action':'transition','id':item,'status':'working'},first)
 ok({'action':'report','id':item,'report':{'works':'Выполнена проверка креплений, подтяжка и контрольный пуск','code':'М-01','materials':[],'photos':[]}},first)
 assert call({'action':'decision','id':item,'decision':'accept','reason':'Запрет'},first)[0]!=200
-for role in ['lead','admin','m2','m1']:
+for role in ['manager','admin','master2','master']:
  ok({'action':'demo-role','id':role},first);assert call(cookie=first)[1]['user']['id']==role
 ok({'action':'decision','id':item,'decision':'accept','reason':'Проверено в тестовой среде','score':5},first)
 state=next(o for o in call(cookie=first)[1]['orders'] if o['id']==item)

@@ -28,10 +28,10 @@ export async function startDemo(req: Request) {
     return Response.json({ error: 'Слишком много новых демо-сессий. Повторите позже.' }, { status: 429 });
   const token = crypto.randomUUID() + crypto.randomUUID();
   const space = crypto.randomUUID();
-  await demoContext.run({ space, user: 'm1' }, initialize);
+  await demoContext.run({ space, user: 'master' }, initialize);
   await db()
     .prepare('INSERT INTO sessions(id,user_id,expires) VALUES(?,?,?)')
-    .bind(await hash(token), 'demo:' + space + ':m1', Date.now() + 86400000)
+    .bind(await hash(token), 'demo:' + space + ':master', Date.now() + 86400000)
     .run();
   return Response.json(
     { ok: true },

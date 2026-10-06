@@ -5,9 +5,10 @@ import { recommendWorkers } from '../../../lib/recommend';
 import { credentials, verifyPassword } from '../../../lib/password';
 import { pushKeys, subscribePush, removePush, notifyUsers } from '../../../lib/web-push';
 import { rateLimit } from '../../../lib/rate-limit';
-import { aiReview } from '../../../lib/ai-review';
+import { markAiPending, runAiReview } from '../../../lib/ai-review';
+import { llmInfo } from '../../../lib/llm';
 import { activeMinutes, equipmentDowntime, stopWorkClock } from '../../../lib/timing';
-import { env } from 'cloudflare:workers';
+import { env, waitUntil } from 'cloudflare:workers';
 import { namespace, ownerKey } from '../../../lib/context';
 import {
   db,
@@ -87,7 +88,8 @@ export async function GET(req: Request) {
       demo: !!namespace(),
       environmentId: namespace() || 'workplace',
       capabilities: {
-        llm: !!((env as any).OPENAI_API_KEY && (env as any).OPENAI_MODEL) && !namespace(),
+        llm: !!llmInfo().provider,
+        llmProvider: llmInfo().provider,
         push: !namespace(),
       },
     });
@@ -477,7 +479,7 @@ export async function POST(req: Request) {
       stopWorkClock(o, now);
       o.check = evaluate(o, o.report, duplicate);
       o.check.minutes = activeMinutes(o);
-      o.check = await aiReview(o, o.report, o.check);
+      o.check = markAiPending(o.check);
       o.finished = now;
       o.status = o.check.verdict === 'rework' ? 'rework' : 'review';
       if (o.status === 'rework') o.returned = true;
@@ -602,6 +604,8 @@ export async function POST(req: Request) {
     o.updatedAt = now;
     await save('orders', o, v);
     for (const alert of pendingAlerts) await storeAlert(alert).catch((e) => console.error('alert:', e));
+    // ИИ-проверка отчёта идёт в фоне: исполнитель не ждёт ответа модели.
+    if (b.action === 'report' && o.check?.aiPending) waitUntil(runAiReview(o.id, new URL(req.url).origin));
     // Push получают только адресаты новых уведомлений: service worker покажет их текст.
     const recipients = [...new Set(pendingAlerts.flatMap((a) => a.to))];
     if (recipients.length) await notifyUsers(recipients, new URL(req.url).origin).catch(() => {});

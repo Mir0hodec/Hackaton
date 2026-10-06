@@ -25,31 +25,93 @@ export const priorities: any = {
 };
 export const closed = (o: any) => ['closed', 'cancelled', 'rejected'].includes(o.status);
 export const overdue = (o: any) => !closed(o) && Date.parse(o.due) < Date.now();
+// Какие материалы ожидаемы для категории шифра (М — механика, Э — электрика, Г — гидравлика,
+// П — пневматика, С — смазка). Расходники общего назначения подходят к любому шифру.
+const materialsByCategory: Record<string, RegExp> = {
+  М: /подшипник|манжет|кольц|набивк|болт|гайк|шайб|лент|ролик|клей|футеров|смазк|муфт|ремен|электрод/i,
+  Э: /кабел|наконечник|изолент|пускател|выключател|датчик|предохранител|муфт|подшипник|смазк/i,
+  Г: /масл|рукав|фильтр|кольц|фитинг|ремкомплект|герметик|манжет/i,
+  П: /пневмо|фильтр|влагоотдел|трубк|фитинг|кольц/i,
+  С: /смазк|масл|трубк|фильтр/i,
+};
+const generalMaterials = /ветош|очистител|обезжирив/i;
+
+/** Немедленная проверка отчёта по правилам (без внешней модели). Формирует и отчёт исполнителю. */
 export function evaluate(o: any, report: any, duplicate = false) {
   const issues: string[] = [];
-  if (!report.works?.trim() || report.works.trim().length < 12)
+  const strengths: string[] = [];
+  const improvements: string[] = [];
+  const works = String(report.works || '').trim();
+  if (works.length < 12) {
     issues.push('Недостаточно подробно описаны выполненные работы.');
-  if (!report.code) issues.push('Не указан шифр неисправности.');
-  if (o.type === 'unplanned' && !report.photos?.length)
+    improvements.push(
+      'Опишите, что именно сделано и как проверен результат (пробный пуск, отсутствие течи).',
+    );
+  } else strengths.push('Выполненные работы описаны.');
+  if (!report.code) {
+    issues.push('Не указан шифр неисправности.');
+    improvements.push('Выберите шифр неисправности из справочника.');
+  }
+  if (o.type === 'unplanned' && !report.photos?.length) {
     issues.push('Для внепланового ремонта требуется фото после выполнения.');
+    improvements.push('Приложите фото узла после ремонта.');
+  } else if (report.photos?.length) strengths.push('Приложено фото после выполнения.');
   if (duplicate)
     issues.push('Обнаружена повторная загрузка ранее использованного изображения. Нужна проверка мастером.');
-  if (report.materials?.some((m: any) => m.qty > m.norm))
-    issues.push('Расход материалов превышает справочный ориентир. Обоснуйте расход.');
+  const excess = (report.materials || []).filter((m: any) => m.qty > m.norm);
+  if (excess.length) {
+    issues.push(
+      'Расход выше справочного ориентира: ' +
+        excess.map((m: any) => `${m.name} — ${m.qty} ${m.unit} при ориентире ${m.norm}`).join('; ') +
+        '. Обоснуйте расход.',
+    );
+    improvements.push('Указывайте фактический расход и причину превышения в комментарии.');
+  }
+  const category = String(report.code || '').charAt(0);
+  const expected = materialsByCategory[category];
+  const odd = expected
+    ? (report.materials || []).filter((m: any) => !expected.test(m.name) && !generalMaterials.test(m.name))
+    : [];
+  if (odd.length)
+    issues.push(
+      `Материалы нетипичны для шифра ${report.code}: ${odd.map((m: any) => m.name).join(', ')}. Проверьте списание.`,
+    );
+  else if ((report.materials || []).length && !excess.length)
+    strengths.push('Списанные материалы соответствуют работе.');
   const mins = activeMinutes(o);
+  const norm = Number(o.norm) || 0;
   if (mins < 1) issues.push('Время выполнения менее минуты. Мастеру следует проверить хронологию.');
-  const score = Math.max(1, 5 - issues.length);
+  else if (norm && mins > norm * 1.5) {
+    issues.push(`Время выполнения ${mins} мин заметно выше норматива ${norm} мин.`);
+    improvements.push('Если работа сложнее типовой, отметьте причину в комментарии.');
+  } else if (norm && mins <= norm) strengths.push(`Уложились в норматив: ${mins} из ${norm} мин.`);
+  if (o.due && Date.now() > Date.parse(o.due))
+    improvements.push('Наряд закрыт после срока — сообщайте мастеру о задержке заранее.');
+  const verdict = issues.some((x) => /требуется|Не указан|Недостаточно/.test(x))
+    ? 'rework'
+    : issues.length
+      ? 'remarks'
+      : 'accepted';
+  const score = Math.max(
+    1,
+    Math.min(5 - issues.length, verdict === 'rework' ? 2 : verdict === 'remarks' ? 4 : 5),
+  );
   return {
     score,
     issues,
-    verdict: issues.some((x) => /требуется|Не указан|Недостаточно/.test(x))
-      ? 'rework'
-      : issues.length
-        ? 'remarks'
-        : 'accepted',
+    verdict,
     minutes: mins,
+    norm,
+    strengths,
+    improvements,
+    summaryForWorker:
+      verdict === 'rework'
+        ? 'Отчёт возвращён: исправьте замечания и отправьте снова.'
+        : verdict === 'remarks'
+          ? 'Отчёт принят на проверку с замечаниями. Окончательную оценку поставит мастер.'
+          : 'Отчёт заполнен полностью. Окончательную оценку поставит мастер.',
     mode: 'rules',
-    note: 'Автоматическая проверка по правилам. Смысловой анализ текста и содержимого фото внешней ИИ-моделью пока не подключён. Окончательное решение принимает мастер.',
+    note: 'Формальная проверка по правилам: полнота, фото, материалы, время. Окончательное решение принимает мастер.',
   };
 }
 /** Число отказов от нарядов без уважительной причины (оценку причины ставит мастер). */

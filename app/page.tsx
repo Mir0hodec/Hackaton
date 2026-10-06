@@ -39,6 +39,7 @@ import { createXlsx } from '../lib/xlsx';
 import { activeMinutes, equipmentDowntime } from '../lib/timing';
 import { putLocal, readLocal, removeLocal } from '../lib/offline';
 import { shiftOf } from '../lib/shift';
+import { OrderReport } from '../components/order-report';
 import { AssigneeHint, CodeHint, useRecommendation } from '../components/assist';
 import { UrgentBanner, playAlarm, playChime, unlockAudio } from '../components/urgent';
 const roleIcons: any = {
@@ -218,7 +219,8 @@ export default function App() {
   ];
   const boardColumn = (o: any) => boardColumns.find(([, , test]) => test(o))?.[0];
   const eqName = (id: string) => data?.equipment?.find((x: any) => x.id === id)?.name || id;
-  const userName = (id: string) => users.find((x: any) => x.id === id)?.name || id;
+  const userName = (id: string) =>
+    id === 'ai' ? 'ИИ-контролёр' : users.find((x: any) => x.id === id)?.name || id;
   const areaName = (id: string) => data?.areas?.find((x: any) => x.id === id)?.name || id;
   const calculatedAlerts = active.flatMap((o: any) => {
     if (user?.role === 'worker' && o.status === 'issued')
@@ -1414,69 +1416,12 @@ export default function App() {
                 </section>
               </div>
               {order.report && (
-                <section className="panel">
-                  <div className="section-title">
-                    <h2>Отчёт о выполнении</h2>
-                    <span className="mono">{order.report.code || 'Без шифра'}</span>
-                  </div>
-                  <p>{order.report.works || 'Описание не заполнено'}</p>
-                  {order.report.comment && <p className="muted">{order.report.comment}</p>}
-                  <div className="material-list">
-                    {order.report.materials?.map((m: any) => (
-                      <span key={m.id}>
-                        {m.name}{' '}
-                        <b>
-                          {m.qty} {m.unit}
-                        </b>
-                      </span>
-                    ))}
-                  </div>
-                  <PhotoStrip ids={order.report.photos} />
-                  {order.check && (
-                    <div className="check-result">
-                      <div className="section-title">
-                        <h3>
-                          <ShieldCheck size={20} />
-                          Результат проверки
-                        </h3>
-                        <strong className="score">
-                          {order.masterScore ?? order.check.score}
-                          <small>/5</small>
-                        </strong>
-                      </div>
-                      <p>
-                        {order.check.verdict === 'rework'
-                          ? 'Требуется доработка'
-                          : order.check.verdict === 'remarks'
-                            ? 'Есть замечания'
-                            : 'Замечаний по формальным правилам нет'}
-                      </p>
-                      {order.check.issues?.map((s: string) => (
-                        <p key={s} className="issue">
-                          <TriangleAlert size={16} />
-                          {s}
-                        </p>
-                      ))}
-                      <p className="muted small">
-                        <b>
-                          {order.check.mode === 'ai'
-                            ? 'ИИ-анализ'
-                            : order.check.mode === 'rules_fallback'
-                              ? 'Резервная проверка'
-                              : 'Проверка по правилам'}
-                        </b>
-                      </p>
-                      <p className="muted small">
-                        {order.check.note || 'Тестовая оценка из сгенерированной истории.'}
-                      </p>
-                      {order.masterComment && (
-                        <p>
-                          <b>Решение мастера:</b> {order.masterComment}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </section>
+                <OrderReport
+                  order={order}
+                  role={user.role}
+                  codeName={(id) => data.codes?.find((c: any) => c.id === id)?.name || ''}
+                  photos={(ids) => <PhotoStrip ids={ids} />}
+                />
               )}
             </>
           ) : tab === 'home' ? (

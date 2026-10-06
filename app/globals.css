@@ -2238,3 +2238,96 @@ button.ai-candidate[aria-pressed='true'] small {
 button.ai-candidate[aria-pressed='true'] {
   font-size: 1em;
 }
+
+.before-after {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.before-after h3 {
+  font-size: 0.95rem;
+  margin: 0 0 0.4rem;
+}
+@media (max-width: 600px) {
+  .before-after {
+    grid-template-columns: 1fr;
+  }
+}
+.material-list .over {
+  border-color: var(--red);
+  color: var(--red);
+}
+.check-result.verdict-rework {
+  border-left: 4px solid var(--red);
+}
+.check-result.verdict-remarks {
+  border-left: 4px solid var(--amber);
+}
+.check-result.verdict-accepted {
+  border-left: 4px solid var(--green);
+}
+.verdict-line {
+  margin: 0.3rem 0;
+}
+.ai-summary {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  font-size: 1.05rem;
+  line-height: 1.45;
+}
+.ai-summary svg {
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
+.ai-pending {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+.spin {
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ai-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.6rem 0;
+}
+.ai-facts dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.ai-facts dd {
+  margin: 0;
+  font-weight: 700;
+}
+.feedback {
+  margin-top: 0.7rem;
+}
+.feedback h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.3rem;
+}
+.feedback ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.5;
+}
+.feedback.good h4 {
+  color: var(--green);
+}
+.feedback.improve h4 {
+  color: var(--amber);
+}

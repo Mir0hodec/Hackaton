@@ -125,14 +125,12 @@ export const tools = {
       insights: a.insights
         .slice(0, 5)
         .map((i) => ({ title: i.title, detail: i.detail, recommendation: i.recommendation })),
-      topEquipment: a.equipment
-        .slice(0, 5)
-        .map((e) => ({
-          name: e.name,
-          unplanned: e.unplanned,
-          downtimeHours: e.downtimeHours,
-          topCode: e.topCode,
-        })),
+      topEquipment: a.equipment.slice(0, 5).map((e) => ({
+        name: e.name,
+        unplanned: e.unplanned,
+        downtimeHours: e.downtimeHours,
+        topCode: e.topCode,
+      })),
       bestWorkers: a.ratings.workers
         .filter((w) => w.count >= 3)
         .slice(0, 3)

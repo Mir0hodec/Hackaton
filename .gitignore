@@ -48,3 +48,6 @@ next-env.d.ts
 !.env.example
 *.tsbuildinfo
 .dev.vars*
+
+# Собственный деплой в Cloudflare: id ресурсов аккаунта
+.cloudflare.local.json

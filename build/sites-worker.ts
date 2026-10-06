@@ -25,4 +25,15 @@ export default {
     }
     return runWithConnectorBinding(binding, () => handler.fetch(request, env, ctx));
   },
+  // НарядAI: Cron Trigger (Cloudflare) проверяет сроки нарядов, даже когда все окна приложения закрыты.
+  // На хостингах без cron-триггеров обработчик просто не вызывается.
+  async scheduled(_controller: ScheduledController, env: Cloudflare.Env, ctx: ExecutionContext) {
+    const { initialize } = await import("../lib/server");
+    const { checkDeadlines } = await import("../lib/deadlines");
+    const origin = (env as any).PUBLIC_ORIGIN || "https://naryadai.app";
+    ctx.waitUntil(initialize().then(() => checkDeadlines(origin)).then(
+      (created) => console.log("deadline check:", created),
+      (error) => console.error("deadline check failed:", error),
+    ));
+  },
 };

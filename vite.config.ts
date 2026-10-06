@@ -14,15 +14,29 @@ const { d1, r2 } = hostingConfig;
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const managedLinux = readExecutionProfile() === "managed-linux";
 
+// НарядAI: собственный деплой в Cloudflare (scripts/deploy-cloudflare.mjs) передаёт реальные
+// ресурсы через переменные окружения. Без них сборка остаётся такой же, как для ChatGPT Sites.
+const ownCloudflare = process.env.NARYADAI_CF_D1_ID
+  ? {
+      name: process.env.NARYADAI_CF_NAME || "naryadai",
+      d1Name: process.env.NARYADAI_CF_D1_NAME || "naryadai",
+      d1Id: process.env.NARYADAI_CF_D1_ID,
+      bucket: process.env.NARYADAI_CF_BUCKET || "naryadai-photos",
+    }
+  : null;
+
 const localBindingConfig = {
   main: "./build/sites-worker.ts",
   compatibility_flags: ["nodejs_compat"],
+  ...(ownCloudflare
+    ? { name: ownCloudflare.name, triggers: { crons: ["* * * * *"] } }
+    : {}),
   d1_databases: d1
     ? [
         {
           binding: d1,
-          database_name: "site-creator-d1",
-          database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+          database_name: ownCloudflare?.d1Name || "site-creator-d1",
+          database_id: ownCloudflare?.d1Id || SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
         },
       ]
     : [],
@@ -30,7 +44,7 @@ const localBindingConfig = {
     ? [
         {
           binding: r2,
-          bucket_name: "site-creator-r2",
+          bucket_name: ownCloudflare?.bucket || "site-creator-r2",
         },
       ]
     : [],

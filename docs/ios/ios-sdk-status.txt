@@ -1,0 +1,2 @@
+Для сборки нужен полный Xcode с iOS SDK. Command Line Tools недостаточно.
+Откройте NaryadAI.xcodeproj в Xcode или задайте NARYADAI_XCODE_PATH=/Applications/Xcode.app.

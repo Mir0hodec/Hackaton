@@ -16,7 +16,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" data-theme="light">
-      <body>{children}</body>
+      <body>
+        {children}
+        <script src="/boot-guard.js" defer />
+      </body>
     </html>
   );
 }

@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, cpSync, mkdtempSync } from 'node:fs';
+import { networkInterfaces, hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -16,20 +16,55 @@ const run = (args) => {
 if (!existsSync('node_modules/wrangler/bin/wrangler.js')) run(['run', 'install:ci']);
 if (!existsSync('dist/server/index.js')) run(['run', 'build']);
 await import('./sites-env.mjs');
+try {
+  const existing = await fetch(`http://127.0.0.1:${port}/api/lan-discovery`, {
+    signal: AbortSignal.timeout(800),
+  });
+  if (existing.ok && (await existing.json()).mode === 'shared-lan-demo') {
+    console.log(`Сервер уже работает: http://127.0.0.1:${port}/demo`);
+    console.log(`iPhone QR-вход: http://127.0.0.1:${port}/lan`);
+    process.exit(0);
+  }
+} catch {}
+
+const addresses = Object.values(networkInterfaces())
+  .flat()
+  .filter((x) => x && !x.internal && x.family === 'IPv4')
+  .map((x) => x.address);
+const rawHost = hostname().replace(/\.$/, '');
+const localHost = rawHost.endsWith('.local') ? rawHost : rawHost + '.local';
+if (!/^[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.local$/.test(localHost))
+  throw new Error('Имя ноутбука недоступно для Bonjour');
 const runtime = path.join(root, '.lan-runtime');
 mkdirSync(runtime, { recursive: true });
-const config = JSON.parse(readFileSync('dist/server/wrangler.json', 'utf8'));
-config.main = path.join(root, 'dist/server/index.js');
-config.assets = { ...config.assets, directory: path.join(root, 'dist/client') };
+// Keep server modules and hashed browser assets from the same build during development.
+// A later build may replace dist; the running demo continues using this immutable copy.
+const site = mkdtempSync(path.join(runtime, 'site-'));
+cpSync(path.join(root, 'dist'), site, {
+  recursive: true,
+  filter: (source) => !path.basename(source).startsWith('.dev.vars'),
+});
+const config = JSON.parse(readFileSync(path.join(site, 'server/wrangler.json'), 'utf8'));
+config.main = path.join(site, 'server/index.js');
+config.assets = { ...config.assets, directory: path.join(site, 'client') };
 config.r2_buckets = [];
-config.vars = { DEMO_ONLY: 'true', WORKSPACE_MODE: 'false', LOCAL_DEMO_NETWORK: 'true' };
+config.vars = {
+  DEMO_ONLY: 'true',
+  WORKSPACE_MODE: 'false',
+  LOCAL_DEMO_NETWORK: 'true',
+  LOCAL_DEMO_HOST: localHost,
+  LOCAL_DEMO_PORT: String(port),
+  LOCAL_DEMO_ADDRESSES: addresses.join(','),
+};
 config.triggers = {};
 delete config.build;
 writeFileSync(path.join(runtime, 'wrangler.json'), JSON.stringify(config, null, 2));
 // Keep all deployment secrets out of this runtime.
 writeFileSync(
   path.join(runtime, '.dev.vars'),
-  'DEMO_ONLY=true\nWORKSPACE_MODE=false\nLOCAL_DEMO_NETWORK=true\n',
+  Object.entries(config.vars)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n') + '\n',
 );
 const state = path.join(root, '.wrangler/lan-state');
 const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
@@ -63,20 +98,26 @@ for (const { tag } of journal.entries) {
   sql(['--file', `drizzle/${tag}.sql`]);
   sql(['--command', `INSERT INTO _naryadai_migrations(name) VALUES('${tag}')`]);
 }
-const addresses = Object.values(networkInterfaces())
-  .flat()
-  .filter((x) => x && !x.internal && x.family === 'IPv4')
-  .map((x) => x.address);
 writeFileSync(
   path.join(runtime, 'connection.json'),
   JSON.stringify(
-    { port, addresses, path: '/demo', service: '_naryadai._tcp.local', mode: 'shared-lan-demo' },
+    {
+      port,
+      addresses,
+      host: localHost,
+      joinPath: '/lan',
+      path: '/demo',
+      service: '_naryadai._tcp.local',
+      mode: 'shared-lan-demo',
+    },
     null,
     2,
   ),
 );
 console.log('\nНарядAI · общая демо-смена в Wi-Fi\n');
 console.log(`На ноутбуке: http://127.0.0.1:${port}/demo`);
+console.log(`iPhone · QR-вход: http://127.0.0.1:${port}/lan`);
+console.log(`iPhone · Safari: http://${localHost}:${port}/demo`);
 for (const ip of addresses) console.log(`С телефона: http://${ip}:${port}/demo`);
 console.log('Откройте APK: он найдёт сервер автоматически. Ноутбук и телефоны должны быть в одной сети.\n');
 const worker = spawn(
@@ -141,6 +182,7 @@ try {
     bonjour = new Bonjour(undefined, (e) => console.warn('Автопоиск недоступен:', e.message));
     service = bonjour.publish({
       name: 'NaryadAI Demo',
+      host: localHost,
       type: 'naryadai',
       protocol: 'tcp',
       port,

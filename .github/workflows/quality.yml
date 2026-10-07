@@ -59,6 +59,7 @@ jobs:
               raise SystemExit('LAN preview did not become ready')
           PY
           python3 tests/lan_api.py
+          python3 tests/lan_boot_api.py
       - name: Save server log on failure
         if: failure()
         run: cat /tmp/naryadai-server.log /tmp/naryadai-lan.log 2>/dev/null || true

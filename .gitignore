@@ -58,3 +58,10 @@ next-env.d.ts
 /android/.signing/
 *.jks
 *.keystore
+
+# iOS build and user signing data
+/ios/build/
+*.xcuserstate
+xcuserdata/
+*.mobileprovision
+*.p12

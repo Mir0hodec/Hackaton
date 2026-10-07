@@ -2872,3 +2872,88 @@ button.ai-candidate[aria-pressed='true'] {
   outline: 2px solid var(--series-1, #214a84);
   outline-offset: 3px;
 }
+
+/* QR onboarding for phones joining the shared local demo. */
+.lan-connect {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 32px 20px max(28px, env(safe-area-inset-bottom));
+  color: #192636;
+}
+.lan-connect header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.lan-connect h1 {
+  font-size: clamp(25px, 5vw, 36px);
+  margin: 4px 0 0;
+  line-height: 1.15;
+}
+.lan-connect h2 {
+  font-size: 22px;
+  margin: 16px 0 10px;
+}
+.lan-connect p,
+.lan-connect li {
+  font-size: 16px;
+  line-height: 1.6;
+}
+.lan-connect .eyebrow {
+  color: #203e7b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.lan-connect-card {
+  padding: 24px;
+  margin: 20px 0;
+  border: 1px solid #d8dfe6;
+  border-radius: 20px;
+  background: #fff;
+}
+.lan-connect-card:first-of-type {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.lan-connect-card .qr-code {
+  max-width: 100%;
+  height: auto;
+}
+.lan-connect-card .primary {
+  display: inline-flex;
+  justify-content: center;
+  padding: 14px 24px;
+  border-radius: 12px;
+  text-decoration: none;
+  background: #203e7b;
+  color: white;
+  font-weight: 700;
+}
+.lan-connect-card small {
+  margin-top: 18px;
+  word-break: break-all;
+  color: #526172;
+}
+.lan-connect-card ol {
+  padding-left: 24px;
+}
+.lan-connect-card summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.lan-connect-fallback {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 16px;
+}
+.lan-connect footer {
+  color: #526172;
+  font-size: 13px;
+  line-height: 1.6;
+}

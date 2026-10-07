@@ -177,3 +177,7 @@ tests/                       интеграционные тесты API
 ## Android: демо в одной Wi-Fi-сети
 
 `npm run start:lan` запускает общую локальную демо-смену и объявляет сервер для автоматического поиска в APK. На macOS можно открыть `Start-LAN.command`, на Windows — `Start-LAN.bat`. [Инструкция, ограничения и сборка Android](docs/ANDROID_LAN.md).
+
+## iPhone: демо и нативный проект
+
+После `npm run start:lan` откройте `/lan` на ноутбуке: QR откроет общую смену в Safari. Нативный Swift-проект с Bonjour находится в `ios/NaryadAI.xcodeproj`; для сборки и установки нужна подпись Apple и полный Xcode. [Инструкция и проверенное состояние](docs/IOS_LAN.md).

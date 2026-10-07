@@ -1,0 +1,33 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  FAA1F2966D6055594206CF85 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate.swift"; sourceTree = "<group>"; };
+  FD005CE3A4FE2D89648A6F50 = { isa = PBXBuildFile; fileRef = FAA1F2966D6055594206CF85; };
+  68681489FA52EC8B713B7D5E = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LANDiscovery.swift"; sourceTree = "<group>"; };
+  776EEDD4A5AE183C74247981 = { isa = PBXBuildFile; fileRef = 68681489FA52EC8B713B7D5E; };
+  F50DCF41441DF59B58753C3A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LANViewController.swift"; sourceTree = "<group>"; };
+  A76D1F2576DAD1BF68A8E4CC = { isa = PBXBuildFile; fileRef = F50DCF41441DF59B58753C3A; };
+  8873151C067A966D8A2B0623 = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
+  05529D7BAF9BE1F1AD75AA78 = { isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
+  D0ADC22F3C046CC76298F620 = { isa = PBXBuildFile; fileRef = 05529D7BAF9BE1F1AD75AA78; };
+  A8792157CB4F27FB949C035F = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NaryadAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+  29E482BF45846524F707E0B8 = { isa = PBXGroup; children = (FAA1F2966D6055594206CF85,68681489FA52EC8B713B7D5E,F50DCF41441DF59B58753C3A,8873151C067A966D8A2B0623,05529D7BAF9BE1F1AD75AA78,); path = NaryadAI; sourceTree = "<group>"; };
+  6F7199ED7B63CDA338A0FB82 = { isa = PBXGroup; children = (A8792157CB4F27FB949C035F,); name = Products; sourceTree = "<group>"; };
+  CC5D242D023A9271190EA7C6 = { isa = PBXGroup; children = (29E482BF45846524F707E0B8,6F7199ED7B63CDA338A0FB82,); sourceTree = "<group>"; };
+  9261F04E014268C1FB6C1C5E = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (FD005CE3A4FE2D89648A6F50,776EEDD4A5AE183C74247981,A76D1F2576DAD1BF68A8E4CC,); runOnlyForDeploymentPostprocessing = 0; };
+  B04831CC372489EBF0287850 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (D0ADC22F3C046CC76298F620,); runOnlyForDeploymentPostprocessing = 0; };
+  0B0EAC1C67A2F2EB9E6EB6F7 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  2B23A31EEC75B029432F2445 = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SWIFT_VERSION = 5.0; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; }; name = Debug; };
+  EDDA600A3F771F810A8065C9 = { isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NaryadAI/Info.plist; MARKETING_VERSION = 1.0.0; PRODUCT_BUNDLE_IDENTIFIER = ai.naryad.ios; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; TARGETED_DEVICE_FAMILY = "1,2"; ENABLE_BITCODE = NO;  }; name = Debug; };
+  07CA1E69F6068DEA30A4DA6B = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 15.0; SWIFT_VERSION = 5.0; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_OPTIMIZATION_LEVEL = "-O"; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; }; name = Release; };
+  594BCDCC96599D88EF772A08 = { isa = XCBuildConfiguration; buildSettings = { ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NaryadAI/Info.plist; MARKETING_VERSION = 1.0.0; PRODUCT_BUNDLE_IDENTIFIER = ai.naryad.ios; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; TARGETED_DEVICE_FAMILY = "1,2"; ENABLE_BITCODE = NO;  }; name = Release; };
+  1922B098E983995960BE56B0 = { isa = XCConfigurationList; buildConfigurations = (2B23A31EEC75B029432F2445,07CA1E69F6068DEA30A4DA6B,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  6FA5FFADD6E6A4C127CEE419 = { isa = XCConfigurationList; buildConfigurations = (EDDA600A3F771F810A8065C9,594BCDCC96599D88EF772A08,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+  34A04005BCAF206EEC990BD9 = { isa = PBXNativeTarget; buildConfigurationList = 6FA5FFADD6E6A4C127CEE419; buildPhases = (9261F04E014268C1FB6C1C5E,0B0EAC1C67A2F2EB9E6EB6F7,B04831CC372489EBF0287850,); buildRules = (); dependencies = (); name = NaryadAI; productName = NaryadAI; productReference = A8792157CB4F27FB949C035F; productType = "com.apple.product-type.application"; };
+  244210E48437B6556980A702 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2600; }; buildConfigurationList = 1922B098E983995960BE56B0; compatibilityVersion = "Xcode 14.0"; developmentRegion = ru; hasScannedForEncodings = 0; knownRegions = (ru,en,Base,); mainGroup = CC5D242D023A9271190EA7C6; productRefGroup = 6F7199ED7B63CDA338A0FB82; projectDirPath = ""; projectRoot = ""; targets = (34A04005BCAF206EEC990BD9,); };
+ };
+ rootObject = 244210E48437B6556980A702;
+}

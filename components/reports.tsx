@@ -228,7 +228,7 @@ export function ReportsPage({
     const s = a.summary;
     const book = createXlsxBook(reportSheets(a, range.label));
     const filename = `NaryadAI-отчёт-${new Date().toISOString().slice(0, 10)}.xlsx`;
-    const native = (window as any).NaryadAndroid;
+    const native = (window as any).NaryadAndroid || (window as any).NaryadIOS;
     if (native?.saveFile) {
       const reader = new FileReader();
       reader.onload = () => native.saveFile(filename, book.type, String(reader.result).split(',')[1]);

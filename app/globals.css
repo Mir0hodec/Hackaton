@@ -3403,3 +3403,12 @@ button.ai-candidate[aria-pressed='true'] {
     padding: 0 3px;
   }
 }
+
+.assistant-msg .assistant-notice {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  margin: 0 0 10px;
+  padding-bottom: 10px;
+}

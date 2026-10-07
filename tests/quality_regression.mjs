@@ -8,6 +8,11 @@ import { analyze, findInsights } from '../lib/analytics.ts';
 import { materialUsage } from '../lib/material-usage.ts';
 import { reportSheets } from '../lib/report-export.ts';
 import { createXlsxBook } from '../lib/xlsx.ts';
+import { clientRequestId } from '../lib/client-id.ts';
+const insecureCrypto = { getRandomValues(bytes) { return bytes.fill(255); } };
+assert.equal(clientRequestId(insecureCrypto), 'ffffffff-ffff-4fff-bfff-ffffffffffff');
+assert.equal(clientRequestId({ randomUUID: () => 'native-uuid' }), 'native-uuid');
+assert.match(clientRequestId({ getRandomValues: (bytes) => crypto.getRandomValues(bytes) }), /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
 const iso = (n) => new Date(Date.now() + n * 60000).toISOString();
 const workers = [
   { id: 'w1', name: 'Занятый слесарь', role: 'worker', spec: 'Слесарь', onShift: true, brigade: 1, grade: 6 },

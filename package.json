@@ -17,7 +17,7 @@
     "start:local": "node -e \"require('fs').copyFileSync('.dev.vars','dist/server/.dev.vars')\" && node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0 --port 4173",
     "format": "prettier --write \"app/**/*.{ts,tsx,css}\" \"lib/**/*.{ts,mts}\" \"components/*.tsx\" \"db/*.ts\" \"scripts/*.mjs\" public/sw.js",
     "deploy:cf": "node scripts/deploy-cloudflare.mjs",
-    "test:quality": "node scripts/verify-quality.mjs",
+    "test:quality": "node scripts/verify-quality.mjs && node scripts/verify-openrouter.mjs",
     "test:quality-api": "python3 tests/quality_api.py",
     "start:lan": "node scripts/start-lan.mjs"
   },

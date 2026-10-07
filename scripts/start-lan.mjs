@@ -1,8 +1,9 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, existsSync, cpSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, cpSync, mkdtempSync, chmodSync } from 'node:fs';
 import { networkInterfaces, hostname } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { lanAiConfig } from './lan-ai-config.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 process.chdir(root);
 const port = Number(process.env.NARYADAI_LAN_PORT || 8788);
@@ -48,7 +49,9 @@ const config = JSON.parse(readFileSync(path.join(site, 'server/wrangler.json'), 
 config.main = path.join(site, 'server/index.js');
 config.assets = { ...config.assets, directory: path.join(site, 'client') };
 config.r2_buckets = [];
+const lanAi = lanAiConfig(root);
 config.vars = {
+  ...lanAi.vars,
   DEMO_ONLY: 'true',
   WORKSPACE_MODE: 'false',
   LOCAL_DEMO_NETWORK: 'true',
@@ -59,13 +62,14 @@ config.vars = {
 config.triggers = {};
 delete config.build;
 writeFileSync(path.join(runtime, 'wrangler.json'), JSON.stringify(config, null, 2));
-// Keep all deployment secrets out of this runtime.
+// Only the explicitly enabled local AI key is allowed; deployment secrets stay out.
 writeFileSync(
   path.join(runtime, '.dev.vars'),
-  Object.entries(config.vars)
+  Object.entries({ ...config.vars, ...lanAi.secrets })
     .map(([key, value]) => `${key}=${value}`)
     .join('\n') + '\n',
 );
+chmodSync(path.join(runtime, '.dev.vars'), 0o600);
 const state = path.join(root, '.wrangler/lan-state');
 const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
 const sql = (args, capture = false) => {

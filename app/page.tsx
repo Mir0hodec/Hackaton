@@ -39,6 +39,7 @@ import { ReportsPage, ManagerDashboard, MyRating, useAnalytics } from '../compon
 import { HistoryPanel, SettingsPanel } from '../components/admin-panels';
 import { activeMinutes, equipmentDowntime } from '../lib/timing';
 import { putLocal, readLocal, removeLocal } from '../lib/offline';
+import { clientRequestId } from '../lib/client-id';
 import { shiftOf } from '../lib/shift';
 import { readExifDate, dHash } from '../lib/photo-meta';
 import { OrderReport } from '../components/order-report';
@@ -450,8 +451,9 @@ export default function App() {
     }
     setBusy(true);
     setError('');
-    const payload = { ...body, requestId: crypto.randomUUID() };
+    const payload = { ...body, requestId: '' };
     try {
+      payload.requestId = clientRequestId();
       const r = await fetch(endpoint(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -469,7 +471,7 @@ export default function App() {
       setToast('Сохранено');
       return d;
     } catch (e: any) {
-      if (!e.server && ['transition', 'report'].includes(body.action) && user) {
+      if (!e.server && payload.requestId && ['transition', 'report'].includes(body.action) && user) {
         try {
           await putLocal('queue', payload.requestId, {
             ...payload,
@@ -864,7 +866,7 @@ export default function App() {
         const blob = await new Promise<Blob>((resolve, reject) =>
           c.toBlob((b) => (b ? resolve(b) : reject(Error('Не удалось обработать фото'))), 'image/jpeg', 0.82),
         );
-        const localId = 'local:' + crypto.randomUUID();
+        const localId = 'local:' + clientRequestId();
         await putLocal('drafts', localId, {
           blob,
           userId: user.id,

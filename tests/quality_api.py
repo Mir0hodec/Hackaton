@@ -19,6 +19,12 @@ def transition(id,status,**kwargs):return ok({'action':'transition','id':id,'sta
 due=(dt.datetime.now(dt.timezone.utc)+dt.timedelta(hours=1)).isoformat()
 ok({'action':'demo-start'});assert call()[1]['user']['role']=='master'
 data=call()[1]
+assert not data['capabilities'].get('lanDemo')
+assert call(path='/api/lan-discovery')[0]==404
+isolated=urllib.request.build_opener(urllib.request.ProxyHandler({}),urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+isolated.open(urllib.request.Request(origin+'/api/demo',data=json.dumps({'action':'demo-start'}).encode(),headers={'Content-Type':'application/json','Origin':origin}),timeout=35).read()
+other=json.loads(isolated.open(origin+'/api/demo',timeout=35).read())
+assert other['environmentId']!=data['environmentId'], 'Public demo visitors must remain isolated'
 worker_id=next(u['id'] for u in data['users'] if u['role']=='worker' and u.get('onShift') and not any(o['status'] not in ['closed','cancelled','rejected'] and (o['worker']==u['id'] or u['id'] in o.get('members',[])) for o in data['orders']))
 material_id=next(m['id'] for m in data['materials'] if 'Кольцо' in m['name'] or 'Манжета' in m['name'])
 def create(title,type='planned',due=due,priority='emergency'):return ok({'action':'create','requestId':str(uuid.uuid4()),'data':{'title':title,'equipment':'e0','worker':worker_id,'priority':priority,'type':type,'norm':60,'due':due}})['id']

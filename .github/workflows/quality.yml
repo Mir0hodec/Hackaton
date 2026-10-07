@@ -40,6 +40,25 @@ jobs:
               raise SystemExit('Local preview did not become ready')
           PY
           npm run test:quality-api
+      - name: Shared Wi-Fi demo regression
+        shell: bash
+        run: |
+          npm run start:lan > /tmp/naryadai-lan.log 2>&1 &
+          lan_pid=$!
+          trap 'kill "$lan_pid" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import time, urllib.request
+          op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          for attempt in range(90):
+              try:
+                  if op.open('http://127.0.0.1:8788/api/lan-discovery', timeout=2).status == 200:
+                      break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise SystemExit('LAN preview did not become ready')
+          PY
+          python3 tests/lan_api.py
       - name: Save server log on failure
         if: failure()
-        run: cat /tmp/naryadai-server.log 2>/dev/null || true
+        run: cat /tmp/naryadai-server.log /tmp/naryadai-lan.log 2>/dev/null || true

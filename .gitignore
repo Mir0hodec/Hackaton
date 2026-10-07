@@ -51,3 +51,10 @@ next-env.d.ts
 
 # Собственный деплой в Cloudflare: id ресурсов аккаунта
 .cloudflare.local.json
+
+# Local LAN preview and Android build/signing state
+/.lan-runtime/
+/android/build/
+/android/.signing/
+*.jks
+*.keystore

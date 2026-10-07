@@ -172,3 +172,8 @@ lib/history-seed.ts          справочники и тестовая исто
 components/                  отчёты, ассистент, QR, голос, отчёт по наряду
 tests/                       интеграционные тесты API
 ```
+
+
+## Android: демо в одной Wi-Fi-сети
+
+`npm run start:lan` запускает общую локальную демо-смену и объявляет сервер для автоматического поиска в APK. На macOS можно открыть `Start-LAN.command`, на Windows — `Start-LAN.bat`. [Инструкция, ограничения и сборка Android](docs/ANDROID_LAN.md).

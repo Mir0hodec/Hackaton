@@ -1,3 +1,5 @@
+import { env } from 'cloudflare:workers';
+import { isLanDemo } from './lan-mode';
 import { rateLimit } from './rate-limit';
 import { db, hash, cookie, initialize, get } from './server';
 import { demoContext } from './context';
@@ -27,7 +29,7 @@ export async function startDemo(req: Request) {
   if (!(await rateLimit(req, 'demo', 20, 3600000)))
     return Response.json({ error: 'Слишком много новых демо-сессий. Повторите позже.' }, { status: 429 });
   const token = crypto.randomUUID() + crypto.randomUUID();
-  const space = crypto.randomUUID();
+  const space = isLanDemo(env as any) ? 'shared-lan' : crypto.randomUUID();
   await demoContext.run({ space, user: 'master' }, initialize);
   await db()
     .prepare('INSERT INTO sessions(id,user_id,expires) VALUES(?,?,?)')

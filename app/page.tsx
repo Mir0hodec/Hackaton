@@ -1187,8 +1187,14 @@ export default function App() {
           {demo && (
             <div className="demo-banner">
               <div>
-                <strong>ДЕМОНСТРАЦИОННЫЙ РЕЖИМ</strong>
-                <span>Без пароля · ваши действия не меняют рабочую базу</span>
+                <strong>
+                  {data.capabilities?.lanDemo ? 'ОБЩАЯ ДЕМО-СМЕНА · WI-FI' : 'ДЕМОНСТРАЦИОННЫЙ РЕЖИМ'}
+                </strong>
+                <span>
+                  {data.capabilities?.lanDemo
+                    ? 'Наряды общие для всех подключённых телефонов'
+                    : 'Без пароля · ваши действия не меняют рабочую базу'}
+                </span>
               </div>
               <button className="role-switch" onClick={() => setModal('demo-role')}>
                 <Users size={18} />

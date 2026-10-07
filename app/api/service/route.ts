@@ -1,3 +1,4 @@
+import { isLanDemo } from '../../../lib/lan-mode';
 import { workcardAction } from '../../../lib/workcards';
 import { checkDeadlines, storeAlert } from '../../../lib/deadlines';
 import { loadSettings, updateSettings } from '../../../lib/settings';
@@ -110,6 +111,7 @@ export async function GET(req: Request) {
       demo: !!namespace(),
       environmentId: namespace() || 'workplace',
       capabilities: {
+        lanDemo: isLanDemo(env as any),
         llm: !!llmInfo().provider,
         llmProvider: llmInfo().provider,
         push: !namespace(),

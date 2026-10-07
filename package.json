@@ -18,13 +18,15 @@
     "format": "prettier --write \"app/**/*.{ts,tsx,css}\" \"lib/**/*.{ts,mts}\" \"components/*.tsx\" \"db/*.ts\" \"scripts/*.mjs\" public/sw.js",
     "deploy:cf": "node scripts/deploy-cloudflare.mjs",
     "test:quality": "node scripts/verify-quality.mjs",
-    "test:quality-api": "python3 tests/quality_api.py"
+    "test:quality-api": "python3 tests/quality_api.py",
+    "start:lan": "node scripts/start-lan.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "^5.7.1",
     "@shadcn/react": "^0.3.0",
+    "bonjour-service": "^1.4.4",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "^1.1.1",

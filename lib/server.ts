@@ -1,3 +1,4 @@
+import { isLanDemo } from './lan-mode';
 import { credentials } from './password';
 import { env } from 'cloudflare:workers';
 import { makeSeed } from './seed';
@@ -157,7 +158,12 @@ export function sameOrigin(req: Request) {
 export function cookie(name: string, token: string, req: Request, maxAge = 43200) {
   const local = new URL(req.url).hostname;
   const secure =
-    local === 'localhost' || local === '127.0.0.1' || local === 'terminal.local' ? '' : '; Secure';
+    local === 'localhost' ||
+    local === '127.0.0.1' ||
+    local === 'terminal.local' ||
+    (isLanDemo(env as any) && new URL(req.url).protocol === 'http:')
+      ? ''
+      : '; Secure';
   return `${name}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
 }
 export async function nextNumber() {

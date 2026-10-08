@@ -39,6 +39,7 @@ import { ReportsPage, ManagerDashboard, MyRating, useAnalytics } from '../compon
 import { HistoryPanel, SettingsPanel } from '../components/admin-panels';
 import { activeMinutes, equipmentDowntime } from '../lib/timing';
 import { putLocal, readLocal, removeLocal } from '../lib/offline';
+import { clientRequestId } from '../lib/client-id';
 import { shiftOf } from '../lib/shift';
 import { readExifDate, dHash } from '../lib/photo-meta';
 import { OrderReport } from '../components/order-report';
@@ -149,10 +150,19 @@ export default function App() {
   const load = useCallback(async () => {
     try {
       const api = endpoint();
+      const initialFetch: typeof fetch = async (input, options) => {
+        const controller = new AbortController();
+        const deadline = window.setTimeout(() => controller.abort(), 12000);
+        try {
+          return await fetch(input, { ...options, signal: controller.signal });
+        } finally {
+          window.clearTimeout(deadline);
+        }
+      };
       const isDemo = api === '/api/demo';
       setDemo(isDemo);
       if (isDemo && !demoStarted.current) {
-        const start = await fetch(api, {
+        const start = await initialFetch(api, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'demo-start' }),
@@ -160,7 +170,7 @@ export default function App() {
         if (!start.ok) throw new Error('Не удалось открыть демо');
         demoStarted.current = true;
       }
-      const r = await fetch(api);
+      const r = await initialFetch(api);
       const d: any = await r.json();
       if (d.demoOnly) {
         window.location.replace('/demo');
@@ -182,7 +192,12 @@ export default function App() {
       setOnline(false);
       const cached = await readLocal('drafts', endpoint() + ':snapshot').catch(() => null);
       if (cached) setData(cached);
-      else setError(e.message);
+      else
+        setError(
+          e.name === 'AbortError'
+            ? 'Сервер не ответил. Проверьте Wi-Fi ноутбука и обновите страницу.'
+            : e.message,
+        );
     }
   }, []);
   useEffect(() => {
@@ -436,8 +451,9 @@ export default function App() {
     }
     setBusy(true);
     setError('');
-    const payload = { ...body, requestId: crypto.randomUUID() };
+    const payload = { ...body, requestId: '' };
     try {
+      payload.requestId = clientRequestId();
       const r = await fetch(endpoint(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -455,7 +471,7 @@ export default function App() {
       setToast('Сохранено');
       return d;
     } catch (e: any) {
-      if (!e.server && ['transition', 'report'].includes(body.action) && user) {
+      if (!e.server && payload.requestId && ['transition', 'report'].includes(body.action) && user) {
         try {
           await putLocal('queue', payload.requestId, {
             ...payload,
@@ -774,6 +790,7 @@ export default function App() {
     [createWorker, setCreateWorker] = useState(''),
     [createNorm, setCreateNorm] = useState('90'),
     [quickEmergency, setQuickEmergency] = useState(true),
+    [quickMinutes, setQuickMinutes] = useState(60),
     [quickPicked, setQuickPicked] = useState(false);
   const canRecommend = user?.role === 'master';
   const analyticsApi = demo ? '/api/demo-analytics' : '/api/analytics';
@@ -808,7 +825,7 @@ export default function App() {
     if (modal === 'edit' && order) setEditWorker(order.status === 'rejected' ? '' : order.worker);
   }, [modal]);
   useEffect(() => {
-    const best = editRanked?.ranked?.[0]?.id;
+    const best = editRanked?.ranked?.find((w) => w.eligible)?.id;
     if (best && !editWorker) setEditWorker(best);
   }, [editRec.result]);
   useEffect(() => {
@@ -820,15 +837,16 @@ export default function App() {
     if (modal === 'quick') {
       setQuickPicked(false);
       setQuickEmergency(true);
+      setQuickMinutes(60);
     }
   }, [modal]);
   useEffect(() => {
-    const best = createRec.result?.ranked?.[0]?.id;
+    const best = createRec.result?.ranked?.find((w) => w.eligible)?.id;
     if (best && !createWorker) setCreateWorker(best);
   }, [createRec.result]);
   useEffect(() => {
-    const best = quickRec.result?.ranked?.[0]?.id;
-    if (best && !quickPicked) setQuickWorker(best);
+    const best = quickRec.result?.ranked?.find((w) => w.eligible)?.id;
+    if (!quickPicked) setQuickWorker(best || '');
   }, [quickRec.result]);
   async function upload(files: FileList | null) {
     if (!files) return;
@@ -848,7 +866,7 @@ export default function App() {
         const blob = await new Promise<Blob>((resolve, reject) =>
           c.toBlob((b) => (b ? resolve(b) : reject(Error('Не удалось обработать фото'))), 'image/jpeg', 0.82),
         );
-        const localId = 'local:' + crypto.randomUUID();
+        const localId = 'local:' + clientRequestId();
         await putLocal('drafts', localId, {
           blob,
           userId: user.id,
@@ -923,7 +941,7 @@ export default function App() {
   if (!data && !error)
     return (
       <main className="entry">
-        <div className="entry-shell" role="status">
+        <div className="entry-shell" role="status" data-naryad-loading="true">
           <h1>НарядAI</h1>
           <p>Подготавливаем рабочую смену…</p>
         </div>
@@ -1185,8 +1203,14 @@ export default function App() {
           {demo && (
             <div className="demo-banner">
               <div>
-                <strong>ДЕМОНСТРАЦИОННЫЙ РЕЖИМ</strong>
-                <span>Без пароля · ваши действия не меняют рабочую базу</span>
+                <strong>
+                  {data.capabilities?.lanDemo ? 'ОБЩАЯ ДЕМО-СМЕНА · WI-FI' : 'ДЕМОНСТРАЦИОННЫЙ РЕЖИМ'}
+                </strong>
+                <span>
+                  {data.capabilities?.lanDemo
+                    ? 'Наряды общие для всех подключённых телефонов'
+                    : 'Без пароля · ваши действия не меняют рабочую базу'}
+                </span>
               </div>
               <button className="role-switch" onClick={() => setModal('demo-role')}>
                 <Users size={18} />
@@ -1515,11 +1539,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       setFormEq(data.equipment[0]?.id || '');
-                      setQuickWorker(
-                        workers.find((w: any) => w.onShift && available(w) === 'Свободен')?.id ||
-                          workers.find((w: any) => w.onShift)?.id ||
-                          '',
-                      );
+                      setQuickWorker('');
                       setPhotos([]);
                       setQuick(true);
                       setModal('quick');
@@ -1795,11 +1815,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       setFormEq(data.equipment[0]?.id || '');
-                      setQuickWorker(
-                        workers.find((w: any) => w.onShift && available(w) === 'Свободен')?.id ||
-                          workers.find((w: any) => w.onShift)?.id ||
-                          '',
-                      );
+                      setQuickWorker('');
                       setPhotos([]);
                       setQuick(true);
                       setModal('quick');
@@ -2015,7 +2031,7 @@ export default function App() {
               </div>
             </>
           ) : tab === 'reports' ? (
-            <ReportsPage api={analyticsApi} data={data} workers={workers} />
+            <ReportsPage api={analyticsApi} data={data} workers={workers} onOpenOrder={setSelected} />
           ) : tab === 'qr' ? (
             <>
               <button className="back no-print" onClick={() => setTab('catalog')}>
@@ -2519,12 +2535,16 @@ export default function App() {
                 экран».
               </p>
               <h3>iPhone</h3>
-              <p>Откройте ссылку в Safari → «Поделиться» → «На экран Домой».</p>
+              <p>
+                Откройте ссылку в Safari → «Поделиться» → «На экран Домой». Если есть переключатель «Открывать
+                как веб-приложение», включите его.
+              </p>
             </>
           )}
           <p className="muted">
-            Если приложение уже установлено, запускайте его значком на главном экране. Для первого входа нужен
-            интернет.
+            Если приложение уже установлено, запускайте его значком на главном экране. Для первого входа
+            требуется{' '}
+            {data.capabilities?.lanDemo ? 'подключение к Wi-Fi ноутбука и запущенный сервер.' : 'интернет.'}
           </p>
         </Modal>
       )}
@@ -2543,10 +2563,10 @@ export default function App() {
                   priority: quickEmergency ? 'emergency' : 'high',
                   type: 'unplanned',
                   norm: quickRec.result?.code?.norm || 60,
-                  due: new Date(Date.now() + 3600000).toISOString(),
+                  due: new Date(Date.now() + quickMinutes * 60000).toISOString(),
                   photos,
                   suggestedCode: quickRec.result?.code?.id,
-                  recommendedWorker: quickRec.result?.ranked?.[0]?.id,
+                  recommendedWorker: quickRec.result?.ranked?.find((w) => w.eligible)?.id,
                 },
               });
               if (r) {
@@ -2555,10 +2575,7 @@ export default function App() {
               }
             }}
           >
-            <p className="muted">
-              Внеплановый ремонт · срок через 1 час. Исполнитель подобран автоматически — проверьте перед
-              выдачей.
-            </p>
+            <p className="muted">Внеплановый ремонт. Проверьте срок и исполнителя перед выдачей.</p>
             <button
               type="button"
               className={'emergency-toggle ' + (quickEmergency ? 'on' : '')}
@@ -2604,6 +2621,7 @@ export default function App() {
                   setQuickWorker(e.target.value);
                 }}
               >
+                <option value="">Выберите исполнителя</option>
                 {workers
                   .filter((w: any) => w.onShift && !w.disabled)
                   .map((w: any) => (
@@ -2622,6 +2640,16 @@ export default function App() {
                 setQuickWorker(id);
               }}
             />
+            <label>
+              Срок выполнения
+              <select value={quickMinutes} onChange={(e) => setQuickMinutes(Number(e.target.value))}>
+                {[2, 15, 60, 120].map((n) => (
+                  <option key={n} value={n}>
+                    Через {n} мин
+                  </option>
+                ))}
+              </select>
+            </label>
             <CodeHint result={quickRec.result} onApplyNorm={() => {}} />
             {photoInput}
             {error && (
@@ -2807,7 +2835,11 @@ export default function App() {
             }}
           >
             <input type="hidden" name="suggestedCode" value={createRec.result?.code?.id || ''} />
-            <input type="hidden" name="recommendedWorker" value={createRec.result?.ranked?.[0]?.id || ''} />
+            <input
+              type="hidden"
+              name="recommendedWorker"
+              value={createRec.result?.ranked?.find((w) => w.eligible)?.id || ''}
+            />
             <label>
               <span className="label-row">
                 Проблема / задание <VoiceButton target="create-title" lang={voiceLang} />

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Send, X, Sparkles } from 'lucide-react';
 import { VoiceButton } from './voice';
 
-type Msg = { role: 'user' | 'assistant'; text: string; mode?: string };
+type Msg = { role: 'user' | 'assistant'; text: string; mode?: string; provider?: string; notice?: string };
 const suggestions = [
   'Кто сейчас свободен из электриков?',
   'Что просрочено на смене?',
@@ -19,26 +19,54 @@ export function AssistantChat({ api }: { api: string }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ behavior: 'smooth' }), [messages, busy]);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => {
+    // Some browsers return a Promise from scrollIntoView; an effect must not return it as cleanup.
+    end.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, busy]);
 
   async function ask(question: string) {
     const q = question.trim();
-    if (!q || busy) return;
+    if (!q || request.current) return;
     setText('');
     const next = [...messages, { role: 'user' as const, text: q }];
     setMessages(next);
     setBusy(true);
+    const controller = new AbortController();
+    request.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 45_000);
     try {
       const r = await fetch(api, {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: q, history: messages.slice(-6) }),
       });
       const d: any = await r.json();
-      setMessages([...next, { role: 'assistant', text: r.ok ? d.text : d.error, mode: d.mode }]);
+      setMessages([
+        ...next,
+        {
+          role: 'assistant',
+          text: r.ok ? d.text : d.error,
+          mode: d.mode,
+          provider: d.provider,
+          notice: d.notice,
+        },
+      ]);
     } catch {
-      setMessages([...next, { role: 'assistant', text: 'Нет связи с сервером. Повторите вопрос.' }]);
+      setMessages([
+        ...next,
+        {
+          role: 'assistant',
+          text: controller.signal.aborted
+            ? 'Сервер не ответил вовремя. Повторите вопрос.'
+            : 'Нет связи с сервером. Проверьте Wi-Fi и повторите вопрос.',
+        },
+      ]);
     } finally {
+      clearTimeout(timeout);
+      request.current = null;
       setBusy(false);
     }
   }
@@ -66,7 +94,7 @@ export function AssistantChat({ api }: { api: string }) {
             <p>Спросите о смене, людях, нарядах или оборудовании. Ответ строится по данным системы.</p>
             <div className="assistant-chips">
               {suggestions.map((s) => (
-                <button key={s} onClick={() => ask(s)}>
+                <button key={s} disabled={busy} onClick={() => ask(s)}>
                   {s}
                 </button>
               ))}
@@ -75,9 +103,18 @@ export function AssistantChat({ api }: { api: string }) {
         )}
         {messages.map((m, i) => (
           <div key={i} className={'assistant-msg ' + m.role}>
+            {m.notice && (
+              <p className="assistant-notice" role="status">
+                {m.notice}
+              </p>
+            )}
             <p>{m.text}</p>
             {m.role === 'assistant' && m.mode && (
-              <small>{m.mode === 'ai' ? 'ИИ-модель · по данным системы' : 'Ответ по данным системы'}</small>
+              <small>
+                {m.mode === 'ai'
+                  ? `ИИ-модель${m.provider === 'openrouter' ? ' · OpenRouter' : ''} · по данным системы`
+                  : 'Ответ по данным системы'}
+              </small>
             )}
           </div>
         ))}
@@ -93,6 +130,7 @@ export function AssistantChat({ api }: { api: string }) {
       >
         <input
           id="assistant-question"
+          aria-label="Вопрос помощнику"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Например: кто свободен из слесарей?"

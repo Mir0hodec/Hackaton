@@ -1,0 +1,5 @@
+
+> naryadai-team@0.4.0 test:quality-api
+> python3 tests/quality_api.py
+
+PASS: emergency issuance; FIFO, accepted bypass and concurrent work and linked/private card guards; pause reason; role permissions; incomplete report rework; material facts; image pipeline and explicit visual fallback; master acceptance; overdue alerts to both roles; workplace separation.

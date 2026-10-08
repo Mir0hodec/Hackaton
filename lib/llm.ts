@@ -1,7 +1,7 @@
 // Единый адаптер языковой модели для всех ИИ-модулей НарядAI.
 //
 // Провайдер выбирается переменными окружения сервера:
-//   AI_PROVIDER = claude | openai | mock   (по умолчанию — по наличию ключа)
+//   AI_PROVIDER = claude | openai | openrouter | mock   (по умолчанию — по наличию ключа)
 //   ANTHROPIC_API_KEY, AI_MODEL (по умолчанию claude-opus-5-5)
 //   OPENAI_API_KEY, OPENAI_MODEL (модель с поддержкой изображений и Responses API)
 // Без ключа модули работают на правилах и статистике и явно помечают это в интерфейсе.
@@ -9,15 +9,26 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from 'cloudflare:workers';
 import { namespace } from './context';
+import { isLanDemo } from './lan-mode';
+import { openRouterChat } from './openrouter';
 
 export type LlmPart = { type: 'text'; text: string } | { type: 'image'; mediaType: string; data: string };
 
-type Provider = 'claude' | 'openai' | 'mock';
+type Provider = 'claude' | 'openai' | 'openrouter' | 'mock';
 
 export function llmInfo(): { provider: Provider | null; model: string | null } {
   const conf = env as any;
-  if (namespace()) return { provider: null, model: null }; // демо-песочница не тратит ключ
+  if (
+    namespace() &&
+    !(namespace() === 'demo:shared-lan:' && isLanDemo(conf) && conf.AI_LAN_ENABLED === 'true')
+  )
+    return { provider: null, model: null }; // Public demo visitors cannot spend the server key.
   const wanted = String(conf.AI_PROVIDER || '').toLowerCase();
+  if ((wanted === 'openrouter' || !wanted) && conf.OPENROUTER_API_KEY)
+    return {
+      provider: 'openrouter',
+      model: conf.OPENROUTER_MODEL || 'nvidia/nemotron-3-super-120b-a12b:free',
+    };
   if (wanted === 'mock') return { provider: 'mock', model: 'mock' };
   if ((wanted === 'claude' || !wanted) && conf.ANTHROPIC_API_KEY)
     return { provider: 'claude', model: conf.AI_MODEL || 'claude-opus-5-5' };
@@ -71,6 +82,30 @@ export async function llmJson<T>(opts: {
   if (provider === 'mock') {
     if (!opts.mock) throw new LlmUnavailable('Нет тестового ответа');
     return opts.mock();
+  }
+  if (provider === 'openrouter') {
+    const result = await openRouterChat({
+      apiKey: conf.OPENROUTER_API_KEY,
+      model,
+      messages: [
+        { role: 'system', content: opts.system },
+        {
+          role: 'user',
+          content: opts.parts.map((p) =>
+            p.type === 'text'
+              ? { type: 'text', text: p.text }
+              : { type: 'image_url', image_url: { url: `data:${p.mediaType};base64,${p.data}` } },
+          ),
+        },
+      ],
+      responseFormat: {
+        type: 'json_schema',
+        json_schema: { name: 'result', strict: true, schema: opts.schema },
+      },
+      maxTokens: opts.maxTokens ?? 4000,
+      timeoutMs: 35_000,
+    });
+    return JSON.parse(result.text) as T;
   }
   if (provider === 'claude') {
     const client = new Anthropic({ apiKey: conf.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 90_000 });

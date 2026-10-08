@@ -1,0 +1,10 @@
+PASS: 14 local-origin validation cases
+Ищем ноутбук мастера в Wi-Fi…
+browser state: ready
+Bonjour services: 1
+resolve state: preparing
+resolve state: ready
+resolved endpoint: Optional(192.168.1.120%en0:8788)
+resolve state: cancelled
+probe response: 200, error: nil
+PASS: NWBrowser resolved Bonjour service + verified LAN protocol: NaryadAI Demo http://192.168.1.120:8788

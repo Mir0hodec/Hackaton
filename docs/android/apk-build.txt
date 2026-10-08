@@ -1,0 +1,25 @@
+warning: [options] source value 8 is obsolete and will be removed in a future release
+warning: [options] target value 8 is obsolete and will be removed in a future release
+warning: [options] To suppress warnings about obsolete options, use -Xlint:-options.
+Note: <project>/android/src/ai/naryad/lan/MainActivity.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+3 warnings
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v3.2 scheme (APK Signature Scheme v3.2): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+V3.0 Signer: certificate DN: CN=NaryadAI LAN Demo, O=NaryadAI
+V3.0 Signer: certificate SHA-256 digest: 7e5c99ed7c124c92ba57325d92b34f63c2ed30520f2c53109127966ca1f79d2f
+V3.0 Signer: certificate SHA-1 digest: a7e299869aaec0ea047c08a546a0a428f5de9a6e
+V3.0 Signer: certificate MD5 digest: 4317d507b6b79d48d6dfb73e8c7d4081
+V3.0 Signer: key algorithm: RSA
+V3.0 Signer: key size (bits): 3072
+V3.0 Signer: public key SHA-256 digest: ec50594252900a94152c0cbfb451858201cc63d1ce875563ca87d5baf58b3ca3
+V3.0 Signer: public key SHA-1 digest: 29a8f116ad8d84bf20f98a714bb55dbe8e41369e
+V3.0 Signer: public key MD5 digest: ba4b364cf58572130e9ff6cd0f116a68
+APK: /Users/daniilsibanov/Documents/Codex/2026-10-06/new-chat/outputs/Android/NaryadAI-LAN.apk

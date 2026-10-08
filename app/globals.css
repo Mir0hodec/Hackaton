@@ -2775,3 +2775,640 @@ button.ai-candidate[aria-pressed='true'] {
   flex: 1;
   min-height: 48px;
 }
+
+.review-checks {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+.review-check {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line, #dbe5e9);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.review-check > span {
+  font-weight: 700;
+  color: #b66a09;
+}
+.review-check.pass > span {
+  color: #16805d;
+}
+.review-check.fail > span {
+  color: #c8353d;
+}
+.review-check p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+@media (max-width: 420px) {
+  .topbar {
+    gap: 8px;
+  }
+  .user-identity {
+    min-width: 0;
+    flex: 1;
+  }
+  .user-identity strong {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .top-actions {
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .top-actions .icon-button,
+  .top-actions .avatar {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+  .top-actions svg {
+    width: 18px;
+    height: 18px;
+  }
+  .mobile-emblem {
+    display: none !important;
+  }
+}
+
+.advanced-filters {
+  min-width: 0;
+}
+.advanced-filters > summary,
+.insight-evidence > summary {
+  cursor: pointer;
+  padding: 12px;
+  color: var(--ink, #24353c);
+}
+.advanced-filters[open] > .filters {
+  margin: 8px 0 0;
+}
+.evidence-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+}
+.insight-evidence {
+  margin: 12px 0;
+}
+.review-check > div {
+  min-width: 0;
+}
+
+.table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.table-scroll:focus-visible {
+  outline: 2px solid var(--series-1, #214a84);
+  outline-offset: 3px;
+}
+
+/* Phone onboarding uses the app's blue palette and keeps QR codes high contrast. */
+.lan-connect {
+  --lan-blue: #01408a;
+  --lan-ink: #192636;
+  --lan-muted: #536271;
+  min-height: 100svh;
+  background: #f5f7fa;
+  color: var(--lan-ink);
+  padding: 28px 32px max(28px, env(safe-area-inset-bottom));
+  color-scheme: light;
+}
+.lan-connect-shell {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+.lan-connect-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid #dfe5ec;
+}
+.lan-connect-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+.lan-connect-brand img {
+  border-radius: 12px;
+}
+.lan-connect-brand strong {
+  display: block;
+  font-size: 21px;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+}
+.lan-connect-brand strong span {
+  color: var(--lan-blue);
+}
+.lan-connect-brand small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--lan-muted);
+}
+.lan-connect-network {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  border: 1px solid #d5e1ef;
+  background: #edf3fa;
+  border-radius: 24px;
+  padding: 7px 12px;
+  color: var(--lan-blue);
+  font-size: 12px;
+  font-weight: 700;
+}
+.lan-connect-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 386px;
+  grid-template-areas: 'intro qr' 'steps qr';
+  gap: 28px 64px;
+  margin: 42px 0 32px;
+  align-items: start;
+}
+.lan-connect-intro {
+  grid-area: intro;
+}
+.lan-connect .eyebrow {
+  display: block;
+  color: var(--lan-blue);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  margin-bottom: 14px;
+}
+.lan-connect h1 {
+  font-size: clamp(30px, 3.5vw, 42px);
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+}
+.lan-connect .lan-connect-lead {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--lan-muted);
+  margin: 18px 0;
+  max-width: 470px;
+}
+.lan-connect-devices {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--lan-muted);
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+.lan-connect-devices svg {
+  color: var(--lan-blue);
+  flex-shrink: 0;
+}
+.lan-connect-device-line {
+  width: 24px;
+  height: 1px;
+  background: #bbc9d9;
+  margin: 0 4px;
+}
+.lan-connect-qr-card {
+  grid-area: qr;
+  padding: 26px 28px 22px;
+  border: 1px solid #dbe3ed;
+  border-radius: 24px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 12px 32px #17385b0a;
+}
+.lan-connect-qr-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--lan-blue);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+.lan-connect-qr-frame {
+  width: fit-content;
+  max-width: 100%;
+  margin: 20px auto;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+}
+.lan-connect .qr-code {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.lan-connect-qr-card h2 {
+  font-size: 21px;
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+}
+.lan-connect-qr-card p {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--lan-muted);
+  margin: 10px 0 20px;
+}
+.lan-connect .lan-connect-open {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 50px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: var(--lan-blue);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.lan-connect .lan-connect-open:hover {
+  background: #003675;
+}
+.lan-connect-server {
+  border-top: 1px solid #edf0f4;
+  margin-top: 20px;
+  padding-top: 15px;
+}
+.lan-connect-server > span {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--lan-muted);
+}
+.lan-connect-server small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--lan-muted);
+  overflow-wrap: anywhere;
+}
+.lan-connect-steps {
+  grid-area: steps;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 23px;
+}
+.lan-connect-steps li {
+  display: flex;
+  gap: 15px;
+  align-items: flex-start;
+}
+.lan-connect-step-number {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #d3dfed;
+  background: #edf3fa;
+  border-radius: 10px;
+  color: var(--lan-blue);
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.lan-connect-steps h2 {
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: -0.015em;
+}
+.lan-connect-steps p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--lan-muted);
+  margin: 4px 0 0;
+}
+.lan-connect-install {
+  padding: 24px 28px;
+  border: 1px solid #dbe3ed;
+  border-radius: 20px;
+  background: #fff;
+}
+.lan-connect-install-heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.lan-connect-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  background: #edf3fa;
+  color: var(--lan-blue);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.lan-connect-install-heading h2 {
+  font-size: 19px;
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+}
+.lan-connect-install-heading p {
+  font-size: 12px;
+  color: var(--lan-muted);
+  margin: 4px 0 0;
+}
+.lan-connect-optional {
+  margin-left: auto;
+  color: var(--lan-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.lan-connect-install-steps {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  list-style: none;
+  padding: 0;
+  margin: 22px 0 0;
+}
+.lan-connect-install-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 22px;
+  border-left: 1px solid #e3e8ee;
+}
+.lan-connect-install-steps li:first-child {
+  padding-left: 0;
+  border: 0;
+}
+.lan-connect-install-steps li:last-child {
+  padding-right: 0;
+}
+.lan-connect-install-steps svg {
+  color: var(--lan-blue);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.lan-connect-install-steps strong {
+  display: block;
+  font-size: 13px;
+}
+.lan-connect-install-steps p {
+  color: var(--lan-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 5px 0 0;
+}
+.lan-connect-help {
+  margin-top: 16px;
+  border: 1px solid #dbe3ed;
+  border-radius: 16px;
+  background: #fff;
+}
+.lan-connect-help summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 18px 24px;
+  min-height: 56px;
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+}
+.lan-connect-help summary::-webkit-details-marker {
+  display: none;
+}
+.lan-connect-help summary > svg:first-child {
+  color: var(--lan-blue);
+  flex-shrink: 0;
+}
+.lan-connect-chevron {
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.lan-connect-help[open] .lan-connect-chevron {
+  transform: rotate(180deg);
+}
+.lan-connect-help summary:focus-visible {
+  outline: 3px solid var(--lan-blue);
+  outline-offset: 3px;
+  border-radius: 16px;
+}
+.lan-connect-help-content {
+  border-top: 1px solid #e5eaf0;
+  padding: 6px 24px 24px;
+}
+.lan-connect-help-content > p {
+  color: var(--lan-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 15px 0;
+}
+.lan-connect-fallback-list {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lan-connect-fallback {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid #e3e8ee;
+  border-radius: 12px;
+  max-width: 100%;
+}
+.lan-connect-fallback > div {
+  min-width: 0;
+}
+.lan-connect-fallback .qr-code {
+  width: 124px;
+  flex-shrink: 0;
+  background: #fff;
+}
+.lan-connect-fallback span {
+  display: block;
+  font-size: 9px;
+  color: var(--lan-muted);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.lan-connect-fallback a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--lan-blue);
+  font-size: 14px;
+  font-weight: 700;
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.lan-connect-fallback p {
+  color: var(--lan-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+}
+.lan-connect footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  color: var(--lan-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  margin-top: 22px;
+}
+.lan-connect footer svg {
+  flex-shrink: 0;
+}
+@media (max-width: 850px) {
+  .lan-connect {
+    padding: 24px;
+  }
+  .lan-connect-hero {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 24px 28px;
+  }
+  .lan-connect-qr-card {
+    padding: 24px 20px 20px;
+  }
+  .lan-connect h1 {
+    font-size: 34px;
+  }
+  .lan-connect-devices {
+    display: none;
+  }
+  .lan-connect-install-steps li {
+    padding: 0 14px;
+  }
+}
+@media (max-width: 700px) {
+  .lan-connect {
+    padding: 20px 18px max(24px, env(safe-area-inset-bottom));
+  }
+  .lan-connect-header {
+    padding-bottom: 20px;
+    gap: 12px;
+  }
+  .lan-connect-brand small {
+    display: none;
+  }
+  .lan-connect-brand img {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .lan-connect-brand {
+    gap: 9px;
+  }
+  .lan-connect-brand strong {
+    font-size: 20px;
+  }
+  .lan-connect-network {
+    font-size: 10px;
+    padding: 6px 9px;
+    gap: 5px;
+  }
+  .lan-connect-hero {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'intro' 'qr' 'steps';
+    margin: 28px 0 24px;
+    gap: 24px;
+  }
+  .lan-connect h1 {
+    font-size: 34px;
+  }
+  .lan-connect .eyebrow {
+    font-size: 9px;
+    margin-bottom: 12px;
+  }
+  .lan-connect .lan-connect-lead {
+    font-size: 14px;
+    line-height: 1.65;
+    margin: 14px 0 0;
+  }
+  .lan-connect-qr-card {
+    padding: 24px 20px 20px;
+    border-radius: 20px;
+  }
+  .lan-connect-qr-frame {
+    margin: 18px auto;
+  }
+  .lan-connect-steps {
+    gap: 21px;
+    padding: 2px 2px 0;
+  }
+  .lan-connect-install {
+    padding: 22px 20px;
+    border-radius: 16px;
+  }
+  .lan-connect-install-heading {
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .lan-connect-install-heading h2 {
+    font-size: 17px;
+  }
+  .lan-connect-optional {
+    display: none;
+  }
+  .lan-connect-install-steps {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    margin-top: 22px;
+  }
+  .lan-connect-install-steps li {
+    padding: 0;
+    border: 0;
+  }
+  .lan-connect-help summary {
+    padding: 18px;
+    font-size: 12px;
+  }
+  .lan-connect-help-content {
+    padding: 4px 18px 18px;
+  }
+  .lan-connect-fallback {
+    padding: 14px;
+    gap: 12px;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .lan-connect-fallback a {
+    font-size: 13px;
+  }
+  .lan-connect footer {
+    align-items: flex-start;
+    justify-content: flex-start;
+    font-size: 10px;
+    padding: 0 3px;
+  }
+}
+
+.assistant-msg .assistant-notice {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  margin: 0 0 10px;
+  padding-bottom: 10px;
+}

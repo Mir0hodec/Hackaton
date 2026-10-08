@@ -86,7 +86,7 @@ export async function checkDeadlines(origin: string) {
         equipmentId: o.equipment,
         text: `${o.title} ${o.description || ''}`,
         exclude: assigned,
-      }).ranked[0];
+      }).ranked.find((w) => w.eligible);
       targets.push({
         kind: 'unaccepted',
         title: `Наряд №${o.number} не принят за ${Math.floor(age)} мин`,

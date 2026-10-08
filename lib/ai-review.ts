@@ -10,22 +10,8 @@ import { llmInfo, llmJson, redactor, type LlmPart } from './llm';
 import { storeAlert } from './deadlines';
 import { notifyUsers } from './web-push';
 
-type AiReview = {
-  score: number;
-  confidence: number;
-  verdict: 'accepted' | 'remarks' | 'rework';
-  worksMatchProblem: boolean;
-  materialsReasonable: boolean;
-  sameEquipment: 'yes' | 'no' | 'unclear';
-  problemFixedOnPhoto: 'yes' | 'no' | 'unclear' | 'no_photos';
-  photoScore: number;
-  photoAssessment: string;
-  strengths: string[];
-  improvements: string[];
-  issues: string[];
-  summaryForWorker: string;
-  summaryForMaster: string;
-};
+import { env } from 'cloudflare:workers';
+import { mergeReview, type AiReview } from './review-result';
 
 const stringList = { type: 'array', items: { type: 'string' } };
 export const reviewSchema = {
@@ -108,9 +94,9 @@ function mockReview(order: any, report: any, base: any): AiReview {
     verdict: match ? (base.issues.length ? 'remarks' : 'accepted') : 'rework',
     worksMatchProblem: match,
     materialsReasonable: !base.issues.some((i: string) => /материал|расход/i.test(i)),
-    sameEquipment: report.photos?.length && order.photos?.length ? 'yes' : 'unclear',
-    problemFixedOnPhoto: report.photos?.length ? 'yes' : 'no_photos',
-    photoScore: report.photos?.length ? 4 : 0,
+    sameEquipment: 'unclear',
+    problemFixedOnPhoto: report.photos?.length ? 'unclear' : 'no_photos',
+    photoScore: 0,
     photoAssessment: report.photos?.length
       ? 'Тестовый режим: фото не анализировалось.'
       : 'Фото после отсутствует.',
@@ -123,47 +109,6 @@ function mockReview(order: any, report: any, base: any): AiReview {
     summaryForMaster: match
       ? 'Отчёт соответствует наряду.'
       : 'Работы в отчёте не устраняют заявленную проблему.',
-  };
-}
-
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(v)));
-
-/** Объединяет проверку по правилам и ответ модели. Правила «rework» модель не отменяет. */
-function merge(base: any, ai: AiReview, model: string) {
-  const confidence = Math.min(1, Math.max(0, Number(ai.confidence) || 0));
-  const low = confidence < 0.7;
-  let verdict: string = ai.verdict;
-  if (low && verdict !== 'accepted') verdict = 'remarks';
-  if (low && verdict === 'accepted' && base.issues.length) verdict = 'remarks';
-  if (base.verdict === 'rework') verdict = 'rework';
-  const issues = [...base.issues, ...ai.issues.filter((i) => !base.issues.includes(i)).slice(0, 6)];
-  if (low) issues.push('ИИ не уверен в оценке: нужна проверка мастером.');
-  return {
-    ...base,
-    mode: 'ai',
-    model,
-    aiPending: false,
-    // Оценка согласуется с вердиктом: «с замечаниями» — не выше 4, «доработка» — не выше 2.
-    score: clamp(
-      Math.min(base.score + 1, ai.score, verdict === 'rework' ? 2 : verdict === 'remarks' ? 4 : 5),
-      1,
-      5,
-    ),
-    confidence,
-    needsMasterCheck: low,
-    verdict,
-    issues,
-    worksMatchProblem: ai.worksMatchProblem,
-    materialsReasonable: ai.materialsReasonable,
-    sameEquipment: ai.sameEquipment,
-    problemFixedOnPhoto: ai.problemFixedOnPhoto,
-    photoScore: clamp(ai.photoScore, 0, 5),
-    photoAssessment: ai.photoAssessment,
-    strengths: [...new Set([...(ai.strengths || []), ...(base.strengths || [])])].slice(0, 6),
-    improvements: [...new Set([...(ai.improvements || []), ...(base.improvements || [])])].slice(0, 6),
-    summaryForWorker: ai.summaryForWorker,
-    summaryForMaster: ai.summaryForMaster,
-    note: 'Проверка выполнена ИИ-моделью вместе с формальными правилами. Окончательное решение принимает мастер.',
   };
 }
 
@@ -186,6 +131,13 @@ export async function runAiReview(orderId: string, origin: string) {
     const redact = redactor(people);
     const eq = equipment.find((e: any) => e.id === order.equipment);
     const code = codes.find((c: any) => c.id === report.code);
+    // Only send plant images to an external provider after deployment configuration approves it.
+    const photosApproved = (env as any).AI_PHOTOS_APPROVED === 'true' && provider !== 'mock';
+    const before = photosApproved ? await photoParts('ДО (при выдаче наряда)', order.photos || []) : [];
+    const after = photosApproved ? await photoParts('ПОСЛЕ (при закрытии)', report.photos || []) : [];
+    const expected = Math.min(2, order.photos?.length || 0) + Math.min(2, report.photos?.length || 0);
+    const sent = [...before, ...after].filter((p) => p.type === 'image').length;
+    const visualComplete = photosApproved && !!report.photos?.length && sent === expected;
     const parts: LlmPart[] = [
       {
         type: 'text',
@@ -207,10 +159,15 @@ export async function runAiReview(orderId: string, origin: string) {
           rulesFindings: base.issues,
           photosBefore: (order.photos || []).length,
           photosAfter: (report.photos || []).length,
+          visualComplete,
+          imagesSent: sent,
+          visualInstruction: visualComplete
+            ? 'Оцените только переданные изображения.'
+            : 'Изображения не переданы полностью: photoScore=0, sameEquipment=unclear, problemFixedOnPhoto=unclear. Нужна проверка мастером.',
         }),
       },
-      ...(await photoParts('ДО (при выдаче наряда)', order.photos || [])),
-      ...(await photoParts('ПОСЛЕ (при закрытии)', report.photos || [])),
+      ...before,
+      ...after,
     ];
     const ai = await llmJson<AiReview>({
       system: SYSTEM,
@@ -220,7 +177,7 @@ export async function runAiReview(orderId: string, origin: string) {
       maxTokens: 6000,
       mock: () => mockReview(order, report, base),
     });
-    await applyReview(orderId, (o) => merge(o.check, ai, model || provider), origin);
+    await applyReview(orderId, (o) => mergeReview(o.check, ai, model || provider, visualComplete), origin);
   } catch (e) {
     console.error('AI review failed:', e);
     await applyReview(
@@ -229,6 +186,7 @@ export async function runAiReview(orderId: string, origin: string) {
         ...o.check,
         aiPending: false,
         mode: 'rules_fallback',
+        needsMasterCheck: true,
         note: 'Внешняя ИИ-проверка недоступна. Отчёт проверен по формальным правилам; нужна проверка мастером.',
       }),
       origin,

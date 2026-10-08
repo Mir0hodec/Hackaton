@@ -1,4 +1,4 @@
-import { db, get, list, save, requireRoles } from './server';
+import { db, get, list, save, saveStartingWorklog, requireRoles } from './server';
 import { namespace } from './context';
 import { notifyUsers } from './web-push';
 
@@ -130,7 +130,8 @@ export async function workcardAction(user: any, b: any, origin: string) {
   }
   if (card.history.length >= 1000) throw new Error('Достигнут лимит записей этой карточки');
   card.history.push({ at: now, actor: user.id, text: event, requestId: b.requestId || null });
-  await save('worklogs', record, record.version);
+  if (b.action === 'work-start') await saveStartingWorklog(record, card);
+  else await save('worklogs', record, record.version);
   await checkWorkDeadlines(origin).catch((e) => console.error('Work reminders:', e));
   return { ok: true, id: card.id };
 }

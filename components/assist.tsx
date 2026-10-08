@@ -6,7 +6,17 @@ import { Sparkles } from 'lucide-react';
 export type RecommendResult = {
   code: { id: string; name: string; norm: number } | null;
   specialty: string | null;
-  ranked: { id: string; name: string; spec: string; score: number; available: string; reasons: string[] }[];
+  ranked: {
+    id: string;
+    name: string;
+    spec: string;
+    score: number;
+    free: boolean;
+    matching: boolean;
+    eligible: boolean;
+    available: string;
+    reasons: string[];
+  }[];
 };
 
 /** Запрашивает рекомендацию у сервера, когда выбрано оборудование (с задержкой на ввод текста). */
@@ -60,8 +70,13 @@ export function AssigneeHint({
   return (
     <div className="ai-hint" aria-live="polite">
       <div className="ai-hint-title">
-        <Sparkles size={18} /> Рекомендация системы
+        <Sparkles size={18} /> {best.eligible ? 'Рекомендация системы' : 'Кандидаты для ручного назначения'}
       </div>
+      {!best.eligible && (
+        <p className="issue small">
+          Нет свободного исполнителя нужной специальности. Проверьте загрузку и выберите сотрудника вручную.
+        </p>
+      )}
       <button
         type="button"
         className={'ai-candidate ' + (selected === best.id ? 'selected' : '')}

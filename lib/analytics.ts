@@ -2,6 +2,8 @@
 // поиск аномалий и прогноз отказов. Чистые функции без доступа к базе — их же вызывает
 // ИИ-ассистент мастера. Каждый вывод — статистический сигнал с числами и рекомендацией.
 import { brigadeRating, closed, rating, ratingWeights } from './domain';
+import { activeMinutes, equipmentDowntime } from './timing';
+import { materialUsage } from './material-usage';
 import { isNight } from './shift';
 
 const DAY = 86400000;
@@ -33,6 +35,7 @@ export type Insight = {
   equipment?: string;
   worker?: string;
   metric?: number;
+  orderIds?: string[];
 };
 
 // Что проверить при повторяющемся шифре неисправности.
@@ -79,7 +82,13 @@ function filterOrders(d: Dataset, f: Filters) {
     if (f.area && o.area !== f.area) return false;
     if (f.equipment && o.equipment !== f.equipment) return false;
     if (f.worker && o.worker !== f.worker && !o.members?.includes(f.worker)) return false;
-    if (f.brigade && brigadeOf.get(o.worker) !== f.brigade) return false;
+    if (
+      f.brigade &&
+      (o.brigade
+        ? Number(o.brigade) !== f.brigade
+        : ![o.worker, ...(o.members || [])].some((id) => brigadeOf.get(id) === f.brigade))
+    )
+      return false;
     return true;
   });
 }
@@ -91,7 +100,7 @@ export function summary(orders: any[], now = Date.now()) {
     .map((o) => minutesBetween(o.created, o.closedAt || o.finished))
     .filter((x) => x >= 0);
   const onTime = done.filter((o) => closedAt(o) <= ts(o.due) || ts(o.finished) <= ts(o.due)).length;
-  const downtime = orders.reduce((s, o) => s + (Number(o.downtime) || 0), 0);
+  const downtime = orders.reduce((s, o) => s + equipmentDowntime(o), 0);
   const scores = done.map((o) => o.masterScore ?? o.check?.score).filter((x) => x != null);
   return {
     issued: orders.length,
@@ -105,6 +114,7 @@ export function summary(orders: any[], now = Date.now()) {
     planned: orders.filter((o) => o.type === 'planned').length,
     emergency: orders.filter((o) => o.priority === 'emergency').length,
     avgReactionMin: Math.round(avg(reaction)),
+    avgActiveMin: Math.round(avg(done.map((o) => activeMinutes(o)))),
     avgCompletionMin: Math.round(avg(completion)),
     onTimeShare: done.length ? onTime / done.length : 0,
     downtimeHours: Math.round(downtime / 6) / 10,
@@ -173,15 +183,17 @@ export function equipmentStats(d: Dataset, orders: any[]) {
   const codeName = new Map(d.codes.map((c) => [c.id, c.name]));
   return d.equipment
     .map((e) => {
-      const mine = orders.filter((o) => o.equipment === e.id);
+      const mine = orders.filter(
+        (o) => o.equipment === e.id && !['cancelled', 'rejected'].includes(o.status),
+      );
       const unplanned = mine.filter((o) => o.type === 'unplanned');
       const byCode: Record<string, number> = {};
       for (const o of unplanned) if (o.report?.code) byCode[o.report.code] = (byCode[o.report.code] || 0) + 1;
       const [topCode, topCount] = Object.entries(byCode).sort((a, b) => b[1] - a[1])[0] || [null, 0];
       const downtimePlanned = mine
         .filter((o) => o.type === 'planned')
-        .reduce((s, o) => s + (Number(o.downtime) || 0), 0);
-      const downtimeUnplanned = unplanned.reduce((s, o) => s + (Number(o.downtime) || 0), 0);
+        .reduce((s, o) => s + equipmentDowntime(o), 0);
+      const downtimeUnplanned = unplanned.reduce((s, o) => s + equipmentDowntime(o), 0);
       return {
         id: e.id,
         name: e.name,
@@ -206,7 +218,7 @@ export function equipmentStats(d: Dataset, orders: any[]) {
 export function areaStats(d: Dataset, orders: any[]) {
   return d.areas
     .map((a) => {
-      const mine = orders.filter((o) => o.area === a.id);
+      const mine = orders.filter((o) => o.area === a.id && !['cancelled', 'rejected'].includes(o.status));
       const unplanned = mine.filter((o) => o.type === 'unplanned');
       return {
         id: a.id,
@@ -215,14 +227,13 @@ export function areaStats(d: Dataset, orders: any[]) {
         unplanned: unplanned.length,
         night: unplanned.filter((o) => isNight(ts(o.created))).length,
         day: unplanned.filter((o) => !isNight(ts(o.created))).length,
-        downtimeHours: Math.round(mine.reduce((s, o) => s + (Number(o.downtime) || 0), 0) / 6) / 10,
+        downtimeHours: Math.round(mine.reduce((s, o) => s + equipmentDowntime(o), 0) / 6) / 10,
       };
     })
     .sort((a, b) => b.unplanned - a.unplanned);
 }
 
 export function materialStats(d: Dataset, orders: any[]) {
-  const byMaterial = new Map<string, any>();
   const byArea = new Map<string, any>();
   const byWorker = new Map<string, any>();
   const deviations: any[] = [];
@@ -230,21 +241,9 @@ export function materialStats(d: Dataset, orders: any[]) {
   const userName = new Map(d.users.map((u) => [u.id, u.name]));
   const eqName = new Map(d.equipment.map((e) => [e.id, e.name]));
   for (const o of orders) {
+    if (['cancelled', 'rejected'].includes(o.status)) continue;
     for (const m of o.report?.materials || []) {
       const over = m.qty > m.norm;
-      const row = byMaterial.get(m.id) || {
-        id: m.id,
-        name: m.name,
-        unit: m.unit,
-        norm: m.norm,
-        qty: 0,
-        orders: 0,
-        over: 0,
-      };
-      row.qty += m.qty;
-      row.orders++;
-      if (over) row.over++;
-      byMaterial.set(m.id, row);
       const a = byArea.get(o.area) || { id: o.area, name: areaName.get(o.area) || o.area, lines: 0, over: 0 };
       a.lines++;
       if (over) a.over++;
@@ -273,7 +272,16 @@ export function materialStats(d: Dataset, orders: any[]) {
     }
   }
   return {
-    materials: [...byMaterial.values()].sort((a, b) => b.orders - a.orders),
+    materials: materialUsage(orders),
+    byArea: materialUsage(orders, 'area').map((m) => ({ ...m, groupName: areaName.get(m.group) || m.group })),
+    byEquipment: materialUsage(orders, 'equipment').map((m) => ({
+      ...m,
+      groupName: eqName.get(m.group) || m.group,
+    })),
+    byWorker: materialUsage(orders, 'worker').map((m) => ({
+      ...m,
+      groupName: userName.get(m.group) || m.group,
+    })),
     areas: [...byArea.values()],
     workers: [...byWorker.values()].sort((a, b) => b.over - a.over),
     deviations: deviations.sort((a, b) => b.ratio - a.ratio).slice(0, 30),
@@ -282,7 +290,9 @@ export function materialStats(d: Dataset, orders: any[]) {
 
 /** Повтор того же шифра на том же оборудовании в течение 7 дней после закрытия ремонта. */
 function repeatsAfter(orders: any[]) {
-  const unplanned = orders.filter((o) => o.type === 'unplanned');
+  const unplanned = orders.filter(
+    (o) => o.type === 'unplanned' && !['cancelled', 'rejected'].includes(o.status),
+  );
   const result: { first: any; next: any }[] = [];
   for (const o of orders) {
     if (o.status !== 'closed' || o.type !== 'unplanned' || !o.report?.code) continue;
@@ -302,17 +312,25 @@ function repeatsAfter(orders: any[]) {
 
 /** Поиск закономерностей. orders — наряды выбранного периода, now — граница для трендов. */
 export function findInsights(d: Dataset, orders: any[], f: Filters): Insight[] {
+  orders = orders.filter((o) => !['cancelled', 'rejected'].includes(o.status));
   const out: Insight[] = [];
   const eqName = new Map(d.equipment.map((e) => [e.id, e.name]));
   const codeName = new Map(d.codes.map((c) => [c.id, c.name]));
   const userName = new Map(d.users.map((u) => [u.id, u.name]));
   const days = Math.max(1, Math.round((Math.min(f.to, Date.now()) - f.from) / DAY));
-  const unplanned = orders.filter((o) => o.type === 'unplanned');
+  const unplanned = orders.filter(
+    (o) => o.type === 'unplanned' && !['cancelled', 'rejected'].includes(o.status),
+  );
 
   // 1. Частые поломки и большой простой.
   const eqStats = equipmentStats(d, orders);
-  const mean = unplanned.length / Math.max(1, d.equipment.length);
-  for (const e of eqStats.filter((e) => e.unplanned >= Math.max(4, mean * 2)).slice(0, 3)) {
+  const eligibleEquipment = d.equipment.filter(
+    (e) => (!f.equipment || e.id === f.equipment) && (!f.area || e.area === f.area),
+  );
+  const mean = unplanned.length / Math.max(1, eligibleEquipment.length);
+  for (const e of eqStats
+    .filter((e) => eligibleEquipment.length > 1 && e.unplanned >= Math.max(4, mean * 2))
+    .slice(0, 3)) {
     const ratio = e.unplanned / Math.max(mean, 0.1);
     out.push({
       id: 'frequent:' + e.id,
@@ -349,7 +367,7 @@ export function findInsights(d: Dataset, orders: any[], f: Filters): Insight[] {
       metric: list.length,
       title: `${eqName.get(eq)}: неисправность повторяется после ремонта`,
       detail: `${list.length} раз тот же шифр (${code} — ${String(codeName.get(code) || '').toLowerCase()}) повторился в течение 7 дней после закрытия ремонта.`,
-      recommendation: `Ремонт устраняет следствие, а не причину: проведите разбор первопричины — ${codeAdvice[code] || 'проверьте условия эксплуатации'}.`,
+      recommendation: `Повторный шифр — сигнал для проверки: проведите разбор первопричины — ${codeAdvice[code] || 'проверьте условия эксплуатации'}.`,
     });
   }
 
@@ -447,7 +465,7 @@ export function findInsights(d: Dataset, orders: any[], f: Filters): Insight[] {
   const brig = new Map<number, { lines: number; over: number }>();
   for (const o of orders)
     for (const m of o.report?.materials || []) {
-      const b = brigadeOf.get(o.worker) || 1;
+      const b = Number(o.brigade) || brigadeOf.get(o.worker) || 1;
       const row = brig.get(b) || { lines: 0, over: 0 };
       row.lines++;
       if (m.qty > m.norm) row.over++;
@@ -501,9 +519,9 @@ export function findInsights(d: Dataset, orders: any[], f: Filters): Insight[] {
         equipment: e.id,
         metric: growth,
         title: `${e.name}: растёт число отказов`,
-        detail: `Внеплановые наряды по месяцам: ${months.join(' → ')}. Если тенденция сохранится, в следующие 30 дней ожидается около ${Math.round(months[2] * growth)} отказов.`,
+        detail: `Внеплановые наряды по месяцам: ${months.join(' → ')}. Некалиброванная экстраполяция при сохранении тенденции: около ${Math.round(months[2] * growth)} отказов.`,
         recommendation:
-          'Прогноз: высокий риск аварийного отказа. Запланируйте диагностику (вибро- и термоконтроль) и ремонт до наступления отказа.',
+          'Рост частоты требует проверки. Это не вероятность аварии; запланируйте диагностику (вибро- и термоконтроль) и уточните причины роста.',
       });
     }
   }
@@ -525,12 +543,42 @@ export function findInsights(d: Dataset, orders: any[], f: Filters): Insight[] {
     });
 
   const order = { high: 0, medium: 1, low: 2 };
-  return out.sort((a, b) => order[a.severity] - order[b.severity]);
+  return out
+    .sort((a, b) => order[a.severity] - order[b.severity])
+    .map((i) => {
+      let evidence = orders;
+      if (i.kind === 'repeat')
+        evidence = repeats.filter((r) => r.first.equipment === i.equipment).flatMap((r) => [r.first, r.next]);
+      else if (i.kind === 'after_ppr')
+        evidence = unplanned.filter(
+          (u) =>
+            u.equipment === i.equipment &&
+            plannedDone.some(
+              (p) =>
+                p.equipment === u.equipment &&
+                ts(u.created) > closedAt(p) &&
+                ts(u.created) - closedAt(p) <= PPR_WINDOW,
+            ),
+        );
+      else if (i.equipment) evidence = unplanned.filter((o) => o.equipment === i.equipment);
+      else if (i.worker)
+        evidence = orders.filter((o) => o.worker === i.worker || o.members?.includes(i.worker));
+      else if (i.kind === 'shift') evidence = unplanned.filter((o) => o.area === i.id.slice('shift:'.length));
+      else if (i.kind === 'materials')
+        evidence = orders.filter(
+          (o) =>
+            (Number(o.brigade) || brigadeOf.get(o.worker) || 1) === Number(i.id.split(':').at(-1)) &&
+            o.report?.materials?.some((m: any) => Number(m.qty) > Number(m.norm)),
+        );
+      return { ...i, orderIds: [...new Set(evidence.map((o) => o.id))].slice(0, 8) };
+    });
 }
 
 export function analyze(d: Dataset, f: Filters) {
   const orders = filterOrders(d, f);
   const s = summary(orders);
+  const insights = findInsights(d, orders, f);
+  const evidenceIds = new Set(insights.flatMap((i) => i.orderIds || []));
   const r = ratings(d, orders);
   const team = {
     quality: avg(r.workers.map((w) => w.quality)),
@@ -549,7 +597,8 @@ export function analyze(d: Dataset, f: Filters) {
     equipment: equipmentStats(d, orders).slice(0, 25),
     areas: areaStats(d, orders),
     materials: materialStats(d, orders),
-    insights: findInsights(d, orders, f),
+    insights,
+    evidenceOrders: orders.filter((o) => evidenceIds.has(o.id)).map((o) => ({ id: o.id, number: o.number })),
   };
 }
 

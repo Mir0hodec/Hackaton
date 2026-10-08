@@ -16,13 +16,17 @@
     "typecheck": "tsc --noEmit",
     "start:local": "node -e \"require('fs').copyFileSync('.dev.vars','dist/server/.dev.vars')\" && node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0 --port 4173",
     "format": "prettier --write \"app/**/*.{ts,tsx,css}\" \"lib/**/*.{ts,mts}\" \"components/*.tsx\" \"db/*.ts\" \"scripts/*.mjs\" public/sw.js",
-    "deploy:cf": "node scripts/deploy-cloudflare.mjs"
+    "deploy:cf": "node scripts/deploy-cloudflare.mjs",
+    "test:quality": "node scripts/verify-quality.mjs && node scripts/verify-openrouter.mjs",
+    "test:quality-api": "python3 tests/quality_api.py",
+    "start:lan": "node scripts/start-lan.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@base-ui/react": "^1.7.0",
     "@hookform/resolvers": "^5.7.1",
     "@shadcn/react": "^0.3.0",
+    "bonjour-service": "^1.4.4",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "^1.1.1",
@@ -56,6 +60,7 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
+    "esbuild": "0.28.0",
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.4",
     "json-rpc-2.0": "1.7.1",

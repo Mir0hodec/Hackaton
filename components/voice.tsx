@@ -21,13 +21,32 @@ export function VoiceButton({ target, lang = 'ru-RU' }: { target: string; lang?:
   const [listening, setListening] = useState(false);
   const recognition = useRef<any>(null);
   useEffect(() => {
-    setSupported(!!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition));
-    return () => recognition.current?.abort?.();
-  }, []);
+    const native = (window as any).NaryadAndroid;
+    setSupported(
+      !!(native?.startVoice || (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition),
+    );
+    const onNative = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.target !== target) return;
+      if (detail.text) appendToField(target, detail.text);
+      setListening(false);
+    };
+    window.addEventListener('naryad-native-voice', onNative);
+    return () => {
+      recognition.current?.abort?.();
+      window.removeEventListener('naryad-native-voice', onNative);
+    };
+  }, [target]);
   if (!supported) return null;
   function toggle() {
     if (listening) {
       recognition.current?.stop();
+      return;
+    }
+    const native = (window as any).NaryadAndroid;
+    if (native?.startVoice) {
+      setListening(true);
+      native.startVoice(target, lang);
       return;
     }
     const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;

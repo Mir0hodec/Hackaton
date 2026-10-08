@@ -1,3 +1,4 @@
+import { isLanDemo } from '../../../lib/lan-mode';
 import { workcardAction } from '../../../lib/workcards';
 import { checkDeadlines, storeAlert } from '../../../lib/deadlines';
 import { loadSettings, updateSettings } from '../../../lib/settings';
@@ -18,6 +19,7 @@ import {
   list,
   get,
   save,
+  saveWorkingOrder,
   actor,
   safeUser,
   hash,
@@ -27,6 +29,7 @@ import {
   nextNumber,
 } from '../../../lib/server';
 import { evaluate, closed, formatServerTime } from '../../../lib/domain';
+import { queueHead, wasQueued } from '../../../lib/queue';
 import { hamming } from '../../../lib/photo-meta';
 export const dynamic = 'force-dynamic';
 // Закрытые наряды остаются в оперативной ленте: мастеру — 3 дня, исполнителю — 14 дней (свои оценки).
@@ -108,6 +111,7 @@ export async function GET(req: Request) {
       demo: !!namespace(),
       environmentId: namespace() || 'workplace',
       capabilities: {
+        lanDemo: isLanDemo(env as any),
         llm: !!llmInfo().provider,
         llmProvider: llmInfo().provider,
         push: !namespace(),
@@ -403,8 +407,20 @@ export async function POST(req: Request) {
       };
       if (!allowed[o.status]?.includes(b.status)) throw new Error('Такой переход недоступен');
       if (['paused', 'rejected'].includes(b.status) && !b.reason?.trim()) throw new Error('Укажите причину');
+      if (b.status === 'queued') o.queuedAt = now;
       if (b.status === 'working') {
         const all = await list('orders');
+        if (['queued', 'accepted'].includes(o.status)) {
+          const head = [...new Set<string>([o.worker, ...(o.members || [])])]
+            .map((id) => queueHead(all, id))
+            .find((head) => head && head.id !== o.id);
+          if (
+            head &&
+            head.id !== o.id &&
+            !(o.priority === 'emergency' && o.status === 'accepted' && !wasQueued(o))
+          )
+            throw new Error('Сначала начните первый наряд очереди №' + head.number);
+        }
         if (
           all.some(
             (x) =>
@@ -632,7 +648,8 @@ export async function POST(req: Request) {
     } else throw new Error('Неизвестное действие');
     o.history.push({ at: now, actor: u.id, text: event, requestId: b.requestId || null });
     o.updatedAt = now;
-    await save('orders', o, v);
+    if (b.action === 'transition' && b.status === 'working') await saveWorkingOrder(o, v);
+    else await save('orders', o, v);
     for (const alert of pendingAlerts) await storeAlert(alert).catch((e) => console.error('alert:', e));
     // ИИ-проверка отчёта идёт в фоне: исполнитель не ждёт ответа модели.
     if (b.action === 'report' && o.check?.aiPending) waitUntil(runAiReview(o.id, new URL(req.url).origin));

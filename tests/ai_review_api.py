@@ -3,8 +3,7 @@ Run against a local server started with AI_PROVIDER=mock in .dev.vars (no extern
 Checks: instant rules verdict, background AI result, AI rework for unrelated works,
 rules rework without photo and with excessive/odd materials, worker/master report fields.
 """
-import urllib.request, urllib.error, json, time, uuid, io
-from PIL import Image
+import urllib.request, urllib.error, json, time, uuid, struct, zlib
 
 op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 BASE = 'http://127.0.0.1:4173'
@@ -39,11 +38,13 @@ def login(name, password):
 
 
 def photo(cookie):
-    b = io.BytesIO()
-    Image.new('RGB', (64, 64), tuple(uuid.uuid4().bytes[:3])).save(b, format='JPEG')
+    def chunk(kind, payload):
+        return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
+    pixel = uuid.uuid4().bytes[:3]
+    image = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 64, 64, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress((b'\0' + pixel * 64) * 64)) + chunk(b'IEND', b'')
     boundary = uuid.uuid4().hex
-    raw = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="p.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'.encode()
-           + b.getvalue() + f'\r\n--{boundary}--\r\n'.encode())
+    raw = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="p.png"\r\nContent-Type: image/png\r\n\r\n'.encode()
+           + image + f'\r\n--{boundary}--\r\n'.encode())
     s, d, _ = call(cookie=cookie, path='/api/photo', raw=raw, ctype='multipart/form-data; boundary=' + boundary)
     assert s == 200, d
     return d['id']
@@ -89,6 +90,7 @@ o = wait_ai(good)
 c = o['check']
 assert c['mode'] == 'ai' and c['verdict'] in ('accepted', 'remarks') and c['summaryForMaster'] and c['strengths'], c
 assert o['status'] == 'review'
+assert c['needsMasterCheck'] and c['photoScore'] == 0 and c['sameEquipment'] == 'unclear', c
 
 # 2. Работы не про ту проблему → ИИ возвращает на доработку, исполнитель получает уведомление.
 wrong = new_order('Течь масла через уплотнение насоса')

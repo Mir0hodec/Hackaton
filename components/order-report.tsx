@@ -1,5 +1,6 @@
 'use client';
 // Отчёт по наряду (ТЗ 6.4): исполнитель видит оценку и подсказки, мастер — полный разбор проверки.
+import { ReviewBreakdown } from './review-breakdown';
 import type { ReactNode } from 'react';
 import { ShieldCheck, TriangleAlert, Sparkles, ThumbsUp, Lightbulb, Loader } from 'lucide-react';
 import { t } from '../lib/i18n';
@@ -76,13 +77,14 @@ export function OrderReport({
             {order.masterScore != null && check.score !== order.masterScore && (
               <span className="muted small">
                 {' '}
-                · оценка ИИ {check.score}/5, мастер изменил на {order.masterScore}/5
+                · оценка {check.mode === 'ai' ? 'ИИ' : 'по правилам'} {check.score}/5, мастер изменил на{' '}
+                {order.masterScore}/5
               </span>
             )}
           </p>
           {check.aiPending && (
             <p className="ai-pending">
-              <Loader size={16} className="spin" /> ИИ анализирует отчёт и фото…
+              <Loader size={16} className="spin" /> ИИ анализирует отчёт…
             </p>
           )}
           {(forWorker ? check.summaryForWorker : check.summaryForMaster || check.summaryForWorker) && (
@@ -95,6 +97,7 @@ export function OrderReport({
             Время: {check.minutes ?? '—'} мин при нормативе {check.norm || order.norm} мин
             {order.downtime ? ` · простой оборудования ${order.downtime} мин` : ''}
           </p>
+          <ReviewBreakdown check={check} />
           {check.mode === 'ai' && !forWorker && (
             <dl className="ai-facts">
               <div>

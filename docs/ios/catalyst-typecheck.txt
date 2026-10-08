@@ -1,0 +1,7 @@
+ios/NaryadAI/LANViewController.swift:47:16: warning: 'contentEdgeInsets' was deprecated in Mac Catalyst 15.0: This property is ignored when using UIButtonConfiguration
+ 45 |         button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+ 46 |         button.backgroundColor = .secondarySystemBackground; button.layer.cornerRadius = 12
+ 47 |         button.contentEdgeInsets = UIEdgeInsets(top: 14, left: 12, bottom: 14, right: 12)
+    |                `- warning: 'contentEdgeInsets' was deprecated in Mac Catalyst 15.0: This property is ignored when using UIButtonConfiguration
+ 48 |         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+ 49 |         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
